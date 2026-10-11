@@ -430,16 +430,15 @@ spec:
     metadata:
       labels: { app: web-dashboard }
     spec:
-      securityContext: { runAsNonRoot: true, runAsUser: 101 }
       containers:
         - name: web-dashboard
           image: "${docker_registry}/web-dashboard:${docker_tag}"
-          ports: [{ name: http, containerPort: 8080 }]
+          ports: [{ name: http, containerPort: 80 }]
           resources:
             requests: { cpu: 25m, memory: 32Mi }
             limits: { cpu: 100m, memory: 96Mi }
           readinessProbe:
-            httpGet: { path: /healthz, port: http }
+            httpGet: { path: /, port: http }
             periodSeconds: 10
 ---
 apiVersion: v1
