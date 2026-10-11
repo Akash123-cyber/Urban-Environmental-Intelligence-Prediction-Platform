@@ -1,0 +1,580 @@
+import json
+import os
+from pathlib import Path
+
+notebook = {
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Urban Environmental Intelligence Platform — Model Training Pipeline\n",
+    "\n",
+    "## Google Colab Free Tier (CPU Runtime)\n",
+    "\n",
+    "This notebook trains, validates, and packages the air quality forecasting models for PM2.5 and PM10 for each canonical city slug.\n",
+    "- **Offline Training:** Training is isolated from the production Kubernetes cluster to prevent memory exhaustion (OOM crashes) on runtime nodes.\n",
+    "- **Validation Gate:** Models are evaluated chronologically against persistence baselines (`skill_vs_persistence > 0`).\n",
+    "- **Artifact Registry:** Serialized `.joblib` bundles are published directly to AWS S3 (`s3://<S3_MODEL_BUCKET>/models/latest/`) with a versioned manifest."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Cell 1 — Install Pinned Dependencies\n",
+    "Restart runtime once if required after installation."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "!pip install -q \"pandas>=2.2,<3\" \"numpy>=2.0,<3\" \"scikit-learn>=1.5,<2\" \"xgboost>=2.1,<3\" \\\n",
+    "               \"boto3>=1.35,<2\" pyarrow joblib scipy matplotlib requests"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Cell 2 — Secrets & Global Configuration\n",
+    "Configure secrets via Google Colab's Key icon (left sidebar) or environment variables."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import os\n",
+    "try:\n",
+    "    from google.colab import userdata\n",
+    "    def secret(name, default=\"\"):\n",
+    "        try:\n",
+    "            return userdata.get(name)\n",
+    "        except Exception:\n",
+    "            return os.getenv(name, default)\n",
+    "except ImportError:\n",
+    "    def secret(name, default=\"\"):\n",
+    "        return os.getenv(name, default)\n",
+    "\n",
+    "AWS_REGION = os.getenv(\"AWS_REGION\", \"us-east-1\")\n",
+    "S3_DATA_BUCKET = secret(\"S3_DATA_BUCKET\", \"urban-processed\")\n",
+    "S3_MODEL_BUCKET = secret(\"S3_MODEL_BUCKET\", \"urban-models\")\n",
+    "REPO = secret(\"GITHUB_REPO\", \"your-org/urban-env-platform\")\n",
+    "\n",
+    "# Canonical cities matching data/cities.csv\n",
+    "CITIES = {\n",
+    "    \"Delhi\": (\"delhi\", 28.6139, 77.2090),\n",
+    "    \"Mumbai\": (\"mumbai\", 19.0760, 72.8777),\n",
+    "    \"Kolkata\": (\"kolkata\", 22.5726, 88.3639),\n",
+    "    \"Chennai\": (\"chennai\", 13.0827, 80.2707),\n",
+    "    \"Bengaluru\": (\"bengaluru\", 12.9716, 77.5946),\n",
+    "}\n",
+    "TARGETS = [\"pm25\", \"pm10\"]\n",
+    "N_ITER = 15      # Hyperparameter search iterations per model\n",
+    "MIN_DAYS = 14    # Minimum days of hourly data required to train\n",
+    "print(f\"Configured {len(CITIES)} cities for targets: {TARGETS}\")\n",
+    "print(f\"S3 Data Bucket: {S3_DATA_BUCKET} | S3 Model Bucket: {S3_MODEL_BUCKET}\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Cell 3 — Optional Google Drive Persistence Backup"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import os\n",
+    "try:\n",
+    "    from google.colab import drive\n",
+    "    drive.mount('/content/drive')\n",
+    "    OUT_ROOT = '/content/drive/MyDrive/urban-models'\n",
+    "    os.makedirs(OUT_ROOT, exist_ok=True)\n",
+    "    print(f'Drive backup directory ready: {OUT_ROOT}')\n",
+    "except Exception as e:\n",
+    "    OUT_ROOT = '/content/urban-models-backup'\n",
+    "    os.makedirs(OUT_ROOT, exist_ok=True)\n",
+    "    print(f'Local backup directory initialized: {OUT_ROOT}')"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Cell 4 — Feature Engineering & Cleaning Logic\n",
+    "We use the identical feature engineering and validation code as the runtime microservices."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import numpy as np\n",
+    "import pandas as pd\n",
+    "\n",
+    "TARGET_COLS = {\"pm25\", \"pm10\"}\n",
+    "WX_COLS = [\"temperature\", \"humidity\", \"wind_speed\"]\n",
+    "FEATURES = [\"lag_1\", \"lag_2\", \"lag_3\", \"lag_24\", \"roll_mean_6\", \"hour_sin\", \"hour_cos\", \"dow\", *WX_COLS]\n",
+    "\n",
+    "def prepare_hourly_grid(df: pd.DataFrame) -> pd.DataFrame:\n",
+    "    if df.empty or \"observed_at\" not in df.columns:\n",
+    "        return pd.DataFrame(columns=[\"pm25\", \"pm10\", *WX_COLS])\n",
+    "    data = df.copy()\n",
+    "    data[\"observed_at\"] = pd.to_datetime(data[\"observed_at\"], utc=True)\n",
+    "    data = data.set_index(\"observed_at\").sort_index()\n",
+    "    data = data[~data.index.duplicated(keep=\"last\")]\n",
+    "    data = data.resample(\"1h\").mean(numeric_only=True)\n",
+    "    for col in [\"pm25\", \"pm10\", *WX_COLS]:\n",
+    "        if col not in data:\n",
+    "            data[col] = np.nan\n",
+    "    return data.interpolate(limit=6, limit_area=\"inside\")\n",
+    "\n",
+    "def make_features(df: pd.DataFrame, target: str) -> pd.DataFrame:\n",
+    "    series = df[target]\n",
+    "    x = pd.DataFrame(index=df.index)\n",
+    "    for lag in (1, 2, 3, 24):\n",
+    "        x[f\"lag_{lag}\"] = series.shift(lag)\n",
+    "    x[\"roll_mean_6\"] = series.shift(1).rolling(6).mean()\n",
+    "    x[\"hour_sin\"] = np.sin(2 * np.pi * df.index.hour / 24)\n",
+    "    x[\"hour_cos\"] = np.cos(2 * np.pi * df.index.hour / 24)\n",
+    "    x[\"dow\"] = df.index.dayofweek\n",
+    "    for col in WX_COLS:\n",
+    "        x[col] = df[col] if col in df else np.nan\n",
+    "    return x[FEATURES]\n",
+    "\n",
+    "def recursive_forecast(model, df: pd.DataFrame, target: str, steps: int = 24):\n",
+    "    hist = df.reindex(columns=[target, *WX_COLS]).copy().tail(120)\n",
+    "    last_valid = hist[target].last_valid_index()\n",
+    "    if last_valid is None:\n",
+    "        raise ValueError(\"target has no valid observations\")\n",
+    "    hist = hist.loc[:last_valid]\n",
+    "    wx = hist[WX_COLS].ffill().iloc[-1].fillna(0.0).tolist()\n",
+    "    result = []\n",
+    "    for _ in range(steps):\n",
+    "        next_time = hist.index[-1] + pd.Timedelta(hours=1)\n",
+    "        hist.loc[next_time] = [np.nan, *wx]\n",
+    "        row = make_features(hist, target).iloc[[-1]]\n",
+    "        pred = max(float(model.predict(row)[0]), 0.0)\n",
+    "        hist.loc[next_time, target] = pred\n",
+    "        result.append((next_time, pred))\n",
+    "    return result\n",
+    "\n",
+    "print(\"Feature pipeline and recursive forecast procedures loaded.\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Cell 5 — Load S3 Processed Parquet Data (Optional/If Available)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import io, boto3\n",
+    "from concurrent.futures import ThreadPoolExecutor\n",
+    "\n",
+    "ak = secret(\"AWS_ACCESS_KEY_ID\")\n",
+    "sk = secret(\"AWS_SECRET_ACCESS_KEY\")\n",
+    "token = secret(\"AWS_SESSION_TOKEN\") or None\n",
+    "\n",
+    "s3 = boto3.client(\n",
+    "    \"s3\", region_name=AWS_REGION,\n",
+    "    aws_access_key_id=ak if ak else None,\n",
+    "    aws_secret_access_key=sk if sk else None,\n",
+    "    aws_session_token=token\n",
+    ") if (ak and sk) else None\n",
+    "\n",
+    "collected = {}\n",
+    "if s3 and S3_DATA_BUCKET:\n",
+    "    for name, (slug, _, _) in CITIES.items():\n",
+    "        prefix = f\"processed/city={slug}/\"\n",
+    "        try:\n",
+    "            paginator = s3.get_paginator(\"list_objects_v2\")\n",
+    "            keys = [o[\"Key\"] for page in paginator.paginate(Bucket=S3_DATA_BUCKET, Prefix=prefix)\n",
+    "                    for o in page.get(\"Contents\", []) if o[\"Key\"].endswith(\".parquet\")]\n",
+    "            if keys:\n",
+    "                def _read(k):\n",
+    "                    return pd.read_parquet(io.BytesIO(s3.get_object(Bucket=S3_DATA_BUCKET, Key=k)[\"Body\"].read()))\n",
+    "                with ThreadPoolExecutor(max_workers=4) as pool:\n",
+    "                    frames = list(pool.map(_read, keys))\n",
+    "                df_s3 = pd.concat(frames, ignore_index=True)\n",
+    "                df_s3[\"observed_at\"] = pd.to_datetime(df_s3[\"observed_at\"], utc=True)\n",
+    "                collected[name] = df_s3.drop_duplicates(\"observed_at\", keep=\"last\").sort_values(\"observed_at\")\n",
+    "                print(f\"Loaded {len(collected[name])} rows from S3 for {name}\")\n",
+    "            else:\n",
+    "                collected[name] = pd.DataFrame()\n",
+    "        except Exception as e:\n",
+    "            print(f\"S3 fetch skipped for {name}: {e}\")\n",
+    "            collected[name] = pd.DataFrame()\n",
+    "else:\n",
+    "    print(\"S3 credentials not provided. Proceeding with Open-Meteo historical bootstrap.\")\n",
+    "    collected = {name: pd.DataFrame() for name in CITIES}"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Cell 6 — Historical Bootstrap from Open-Meteo Archive API\n",
+    "Provides 30-90 days of real historical air quality and weather observations."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import requests, time\n",
+    "from datetime import date, timedelta\n",
+    "\n",
+    "AIR_URL = \"https://air-quality-api.open-meteo.com/v1/air-quality\"\n",
+    "WX_URL = \"https://archive-api.open-meteo.com/v1/archive\"\n",
+    "AIR_MAP = {\"pm2_5\": \"pm25\", \"pm10\": \"pm10\", \"nitrogen_dioxide\": \"no2\",\n",
+    "           \"ozone\": \"o3\", \"carbon_monoxide\": \"co\", \"sulphur_dioxide\": \"so2\"}\n",
+    "WX_MAP = {\"temperature_2m\": \"temperature\", \"relative_humidity_2m\": \"humidity\", \"wind_speed_10m\": \"wind_speed\"}\n",
+    "\n",
+    "def fetch_hourly(url, lat, lon, mapping, start_date, end_date):\n",
+    "    params = {\n",
+    "        \"latitude\": lat, \"longitude\": lon,\n",
+    "        \"hourly\": \",\".join(mapping.keys()),\n",
+    "        \"start_date\": str(start_date), \"end_date\": str(end_date),\n",
+    "        \"timezone\": \"UTC\"\n",
+    "    }\n",
+    "    res = requests.get(url, params=params, timeout=30)\n",
+    "    if res.status_code != 200:\n",
+    "        return {}\n",
+    "    data = res.json().get(\"hourly\", {})\n",
+    "    times = data.get(\"time\", [])\n",
+    "    return {t: {dest: data[src][i] for src, dest in mapping.items() if src in data} for i, t in enumerate(times)}\n",
+    "\n",
+    "def bootstrap_city(lat, lon, days=45):\n",
+    "    end_dt = date.today() - timedelta(days=2)\n",
+    "    start_dt = end_dt - timedelta(days=days)\n",
+    "    air = fetch_hourly(AIR_URL, lat, lon, AIR_MAP, start_dt, end_dt)\n",
+    "    wx = fetch_hourly(WX_URL, lat, lon, WX_MAP, start_dt, end_dt)\n",
+    "    all_times = sorted(set(air.keys()) | set(wx.keys()))\n",
+    "    records = [{\"observed_at\": t + \"Z\", **air.get(t, {}), **wx.get(t, {})} for t in all_times]\n",
+    "    return pd.DataFrame(records)\n",
+    "\n",
+    "bootstrap_data = {}\n",
+    "for name, (slug, lat, lon) in CITIES.items():\n",
+    "    print(f\"Bootstrapping {name} ({lat}, {lon})...\")\n",
+    "    df_boot = bootstrap_city(lat, lon, days=45)\n",
+    "    bootstrap_data[name] = df_boot\n",
+    "    print(f\"  Retrieved {len(df_boot)} historical hourly observations\")\n",
+    "    time.sleep(1)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Cell 7 — Harmonize & Build Hourly Grids"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "frames = {}\n",
+    "for name, (slug, _, _) in CITIES.items():\n",
+    "    parts = []\n",
+    "    if not bootstrap_data.get(name, pd.DataFrame()).empty:\n",
+    "        parts.append(bootstrap_data[name])\n",
+    "    if not collected.get(name, pd.DataFrame()).empty:\n",
+    "        parts.append(collected[name])\n",
+    "    if not parts:\n",
+    "        print(f\"No data for {name}\")\n",
+    "        continue\n",
+    "    raw = pd.concat(parts, ignore_index=True)\n",
+    "    raw[\"observed_at\"] = pd.to_datetime(raw[\"observed_at\"], utc=True)\n",
+    "    raw = raw.drop_duplicates(\"observed_at\", keep=\"last\").sort_values(\"observed_at\")\n",
+    "    grid = prepare_hourly_grid(raw)\n",
+    "    if len(grid) < MIN_DAYS * 24:\n",
+    "        print(f\"Skipping {name}: insufficient data ({len(grid)}h < {MIN_DAYS * 24}h)\")\n",
+    "        continue\n",
+    "    frames[name] = grid\n",
+    "    print(f\"{name:10s}: {len(grid):5d} hours | {grid.index.min():%Y-%m-%d} to {grid.index.max():%Y-%m-%d} | PM2.5 NaNs: {grid['pm25'].isna().mean():.1%}\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Cell 8 — Model Training Engine & Time-Series Evaluation"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "from scipy.stats import randint, uniform\n",
+    "from sklearn.model_selection import RandomizedSearchCV, TimeSeriesSplit\n",
+    "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n",
+    "from xgboost import XGBRegressor\n",
+    "\n",
+    "def split_xy(df: pd.DataFrame, target: str):\n",
+    "    X = make_features(df, target)\n",
+    "    y = df[target]\n",
+    "    valid = y.notna() & X[\"lag_1\"].notna()\n",
+    "    return X[valid], y[valid]\n",
+    "\n",
+    "def chrono_split(X, y, train_pct=0.70, val_pct=0.15):\n",
+    "    n = len(X)\n",
+    "    i1, i2 = int(n * train_pct), int(n * (train_pct + val_pct))\n",
+    "    return (X.iloc[:i1], y.iloc[:i1]), (X.iloc[i1:i2], y.iloc[i1:i2]), (X.iloc[i2:], y.iloc[i2:])\n",
+    "\n",
+    "def calc_metrics(y_true, y_pred):\n",
+    "    return {\n",
+    "        \"mae\": float(mean_absolute_error(y_true, y_pred)),\n",
+    "        \"rmse\": float(root_mean_squared_error(y_true, y_pred))\n",
+    "    }\n",
+    "\n",
+    "def baseline_metrics(X_test, y_test):\n",
+    "    return {\n",
+    "        \"persistence\": calc_metrics(y_test, X_test[\"lag_1\"]),\n",
+    "        \"seasonal_24h\": calc_metrics(y_test[X_test[\"lag_24\"].notna()], X_test.loc[X_test[\"lag_24\"].notna(), \"lag_24\"]),\n",
+    "        \"rolling_mean_6h\": calc_metrics(y_test[X_test[\"roll_mean_6\"].notna()], X_test.loc[X_test[\"roll_mean_6\"].notna(), \"roll_mean_6\"])\n",
+    "    }\n",
+    "\n",
+    "SEARCH_SPACE = {\n",
+    "    \"n_estimators\": randint(100, 400),\n",
+    "    \"max_depth\": randint(3, 7),\n",
+    "    \"learning_rate\": uniform(0.03, 0.12),\n",
+    "    \"subsample\": uniform(0.7, 0.3),\n",
+    "    \"colsample_bytree\": uniform(0.7, 0.3),\n",
+    "    \"reg_lambda\": uniform(0.5, 3.0)\n",
+    "}\n",
+    "\n",
+    "def tune_and_train(df: pd.DataFrame, target: str, n_iter: int = 15):\n",
+    "    X, y = split_xy(df, target)\n",
+    "    (X_tr, y_tr), (X_va, y_va), (X_te, y_te) = chrono_split(X, y)\n",
+    "    X_train_val = pd.concat([X_tr, X_va])\n",
+    "    y_train_val = pd.concat([y_tr, y_va])\n",
+    "\n",
+    "    search = RandomizedSearchCV(\n",
+    "        XGBRegressor(n_jobs=2, random_state=42),\n",
+    "        SEARCH_SPACE, n_iter=n_iter,\n",
+    "        cv=TimeSeriesSplit(n_splits=3),\n",
+    "        scoring=\"neg_mean_absolute_error\",\n",
+    "        random_state=42, refit=False\n",
+    "    )\n",
+    "    search.fit(X_train_val, y_train_val)\n",
+    "    best_params = search.best_params_\n",
+    "\n",
+    "    # Fit evaluation model on train/val to test on unseen future slice\n",
+    "    eval_model = XGBRegressor(**best_params, n_jobs=2, random_state=42).fit(X_train_val, y_train_val)\n",
+    "    test_preds = eval_model.predict(X_te)\n",
+    "    test_res = calc_metrics(y_te, test_preds)\n",
+    "    base_res = baseline_metrics(X_te, y_te)\n",
+    "\n",
+    "    # Final production serving model fitted on full history\n",
+    "    final_model = XGBRegressor(**best_params, n_jobs=2, random_state=42).fit(X, y)\n",
+    "\n",
+    "    return final_model, eval_model, {\n",
+    "        \"params\": best_params,\n",
+    "        \"test\": test_res,\n",
+    "        \"baselines\": base_res,\n",
+    "        \"rows\": len(X),\n",
+    "        \"test_start\": str(X_te.index[0])\n",
+    "    }"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Cell 9 — Execute Training & Enforce Deployment Gate"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "from datetime import datetime, timezone\n",
+    "\n",
+    "VERSION = datetime.now(timezone.utc).strftime(\"%Y%m%d%H%M\")\n",
+    "trained_models = {}\n",
+    "evaluation_report = {}\n",
+    "accepted_keys = set()\n",
+    "\n",
+    "for name, df in frames.items():\n",
+    "    slug = CITIES[name][0]\n",
+    "    for target in TARGETS:\n",
+    "        print(f\"Training {name} ({slug}) for target: {target}...\")\n",
+    "        final_model, eval_model, res = tune_and_train(df, target, n_iter=N_ITER)\n",
+    "        \n",
+    "        m_test = res[\"test\"][\"mae\"]\n",
+    "        m_base = res[\"baselines\"][\"persistence\"][\"mae\"]\n",
+    "        skill = 1.0 - (m_test / m_base) if m_base > 0 else 0.0\n",
+    "        \n",
+    "        gate_passed = skill > 0.0\n",
+    "        key = f\"{slug}_{target}\"\n",
+    "        \n",
+    "        if gate_passed:\n",
+    "            accepted_keys.add(key)\n",
+    "            print(f\"  -> ACCEPTED: MAE={m_test:.2f} vs Persistence={m_base:.2f} (Skill: {skill*100:.1f}%)\")\n",
+    "        else:\n",
+    "            print(f\"  -> GATE FAILED: MAE={m_test:.2f} vs Persistence={m_base:.2f}\")\n",
+    "            \n",
+    "        trained_models[key] = (final_model, res, df.index.min(), df.index.max())\n",
+    "        evaluation_report[key] = {\n",
+    "            \"city\": name,\n",
+    "            \"slug\": slug,\n",
+    "            \"target\": target,\n",
+    "            \"gate_passed\": gate_passed,\n",
+    "            \"skill_score\": round(skill, 4),\n",
+    "            \"model_mae\": round(m_test, 2),\n",
+    "            \"persistence_mae\": round(m_base, 2),\n",
+    "            \"rows\": res[\"rows\"]\n",
+    "        }\n",
+    "\n",
+    "report_df = pd.DataFrame(evaluation_report).T\n",
+    "print(\"\\n--- EVALUATION SUMMARY ---\")\n",
+    "print(report_df[[\"city\", \"target\", \"model_mae\", \"persistence_mae\", \"skill_score\", \"gate_passed\"]])"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Cell 10 — Export Model Bundles & Manifest"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import joblib, json, platform, sklearn, xgboost, time\n",
+    "\n",
+    "OUT_DIR = f\"/content/models/{VERSION}\"\n",
+    "os.makedirs(OUT_DIR, exist_ok=True)\n",
+    "\n",
+    "libs = {\n",
+    "    \"python\": platform.python_version(),\n",
+    "    \"pandas\": pd.__version__,\n",
+    "    \"numpy\": np.__version__,\n",
+    "    \"scikit-learn\": sklearn.__version__,\n",
+    "    \"xgboost\": xgboost.__version__\n",
+    "}\n",
+    "\n",
+    "manifest = {\n",
+    "    \"version\": VERSION,\n",
+    "    \"created_at\": datetime.now(timezone.utc).isoformat(),\n",
+    "    \"features\": FEATURES,\n",
+    "    \"libraries\": libs,\n",
+    "    \"models\": {}\n",
+    "}\n",
+    "\n",
+    "for key, (model, res, t_min, t_max) in trained_models.items():\n",
+    "    if key not in accepted_keys:\n",
+    "        print(f\"Skipping unaccepted candidate: {key}\")\n",
+    "        continue\n",
+    "    slug, target = key.split(\"_\")\n",
+    "    bundle = {\n",
+    "        \"model\": model,\n",
+    "        \"version\": VERSION,\n",
+    "        \"trained_at\": time.time(),\n",
+    "        \"target\": target,\n",
+    "        \"metrics\": res[\"test\"],\n",
+    "        \"params\": res[\"params\"],\n",
+    "        \"data_range\": [str(t_min), str(t_max)],\n",
+    "        \"libraries\": libs\n",
+    "    }\n",
+    "    joblib_path = f\"{OUT_DIR}/{slug}_{target}.joblib\"\n",
+    "    joblib.dump(bundle, joblib_path)\n",
+    "    model.save_model(f\"{OUT_DIR}/{slug}_{target}.json\")\n",
+    "    manifest[\"models\"][key] = {\n",
+    "        \"metrics\": res[\"test\"],\n",
+    "        \"data_range\": bundle[\"data_range\"]\n",
+    "    }\n",
+    "\n",
+    "with open(f\"{OUT_DIR}/manifest.json\", \"w\") as f:\n",
+    "    json.dump(manifest, f, indent=2)\n",
+    "\n",
+    "report_df.to_csv(f\"{OUT_DIR}/evaluation_report.csv\")\n",
+    "print(f\"Exported {len(manifest['models'])} accepted model bundles to: {OUT_DIR}\")\n",
+    "!ls -lh {OUT_DIR}"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Cell 11 — Publish Models to S3 Bucket (`models/latest/`)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "if s3 and S3_MODEL_BUCKET:\n",
+    "    print(f\"Uploading model artifacts to s3://{S3_MODEL_BUCKET}/...\")\n",
+    "    for fname in os.listdir(OUT_DIR):\n",
+    "        fpath = os.path.join(OUT_DIR, fname)\n",
+    "        # 1. Versioned immutable backup\n",
+    "        v_key = f\"models/{VERSION}/{fname}\"\n",
+    "        s3.upload_file(fpath, S3_MODEL_BUCKET, v_key)\n",
+    "        # 2. Latest active pointer for runtime service\n",
+    "        l_key = f\"models/latest/{fname}\"\n",
+    "        s3.upload_file(fpath, S3_MODEL_BUCKET, l_key)\n",
+    "        print(f\"  Uploaded: {fname} -> models/latest/{fname}\")\n",
+    "    print(f\"\\nSUCCESS: Models published to s3://{S3_MODEL_BUCKET}/models/latest/\")\n",
+    "else:\n",
+    "    print(\"S3 credentials or S3_MODEL_BUCKET not configured. Artifacts saved locally in /content/models/\")"
+   ]
+  }
+ ],
+ "metadata": {
+  "accelerator": "CPU",
+  "colab": {
+   "provenance": []
+  },
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "name": "python",
+   "version": "3.10"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 4
+}
+
+out_path = Path("/home/akash/Antigravity/Urban Environmental Intelligence & Prediction Platform/urban-env-platform/notebooks/urban_training.ipynb")
+out_path.parent.mkdir(parents=True, exist_ok=True)
+with open(out_path, "w", encoding="utf-8") as f:
+    json.dump(notebook, f, indent=1)
+print(f"Generated {out_path} ({out_path.stat().st_size} bytes)")
