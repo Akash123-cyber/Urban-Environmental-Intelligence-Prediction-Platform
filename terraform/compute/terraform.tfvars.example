@@ -1,0 +1,21 @@
+region      = "us-east-1"
+project     = "urban-eipp"
+environment = "dev"
+key_name    = "REPLACE_WITH_EXISTING_EC2_KEY_PAIR"
+admin_cidrs = ["203.0.113.10/32"] # Replace with your actual public IP/32.
+
+# Copy the values from `terraform -chdir=../persistent output -json bucket_names`.
+bucket_names = {
+  raw       = "REPLACE_WITH_RAW_BUCKET"
+  processed = "REPLACE_WITH_PROCESSED_BUCKET"
+  models    = "REPLACE_WITH_MODEL_BUCKET"
+}
+
+# Docker Hub images (built externally via CI/CD, pulled directly by k3s)
+docker_registry = "docker.io/yourusername"
+docker_tag      = "latest"
+
+# Application Initial Config
+admin_email    = "admin@example.com"
+openaq_api_key = "REPLACE_WITH_OPENAQ_API_KEY_OR_EMPTY"
+

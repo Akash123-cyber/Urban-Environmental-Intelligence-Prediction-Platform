@@ -1,0 +1,57 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-processor
+  namespace: urban-platform
+spec:
+  selector:
+    app: data-processor
+  ports:
+    - port: 5000
+      targetPort: 5000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-processor
+  namespace: urban-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: data-processor
+  template:
+    metadata:
+      labels:
+        app: data-processor
+    spec:
+      containers:
+        - name: data-processor
+          image: docker.io/urbaneipp/data-processor:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5000
+          envFrom:
+            - configMapRef:
+                name: urban-config
+            - secretRef:
+                name: db-credentials
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 15
+            periodSeconds: 20

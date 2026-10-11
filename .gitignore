@@ -1,0 +1,31 @@
+# secrets & local config
+.env
+*.tfvars
+!*.tfvars.example
+*.pem
+kubeconfig*
+
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+models/
+*.parquet
+
+# node
+node_modules/
+dist/
+
+# terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+tfplan
+.terraform.lock.hcl
+
+# misc
+.DS_Store
+.idea/
+.vscode/
+*.log

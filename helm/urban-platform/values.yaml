@@ -1,0 +1,152 @@
+image:
+  registry: docker.io/urbaneipp
+  tag: latest
+  pullPolicy: IfNotPresent
+
+config:
+  AWS_REGION: us-east-1
+  S3_RAW_BUCKET: "urban-eipp-dev-raw"
+  S3_PROCESSED_BUCKET: "urban-eipp-dev-processed"
+  S3_MODEL_BUCKET: "urban-eipp-dev-models"
+  MODEL_S3_PREFIX: "models/latest/"
+  MODEL_DIR: "/models"
+  USE_PRETRAINED: "true"
+  LIVE_LOOKBACK_HOURS: "2"
+  PROCESSOR_URL: "http://data-processor:5000"
+  ANALYTICS_URL: "http://analytics-service:5001"
+  POLL_INTERVAL_SECONDS: "900"
+  ANALYTICS_INTERVAL_SECONDS: "1800"
+  LOG_LEVEL: "INFO"
+
+ingress:
+  enabled: true
+  className: nginx
+  host: app.local.nip.io
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+
+postgres:
+  enabled: true
+  image: postgres:16-alpine
+  storage: 10Gi
+  storageClass: local-path
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+services:
+  data-collector:
+    enabled: true
+    containerPort: 8080
+    servicePort: 8080
+    replicas: 1
+    userId: 10001
+    secretRefs:
+      - collector-secret
+    probes:
+      liveness: /health
+      readiness: /ready
+    resources:
+      requests:
+        cpu: 50m
+        memory: 96Mi
+      limits:
+        cpu: 250m
+        memory: 256Mi
+    hpa:
+      enabled: false
+
+  data-processor:
+    enabled: true
+    containerPort: 5000
+    servicePort: 5000
+    replicas: 1
+    userId: 10001
+    secretRefs:
+      - db-credentials
+    probes:
+      liveness: /health
+      readiness: /ready
+    resources:
+      requests:
+        cpu: 100m
+        memory: 192Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    hpa:
+      enabled: true
+      min: 1
+      max: 3
+      cpu: 70
+
+  analytics-service:
+    enabled: true
+    containerPort: 5001
+    servicePort: 5001
+    replicas: 1
+    userId: 10001
+    modelsVolume: true
+    secretRefs:
+      - db-credentials
+    probes:
+      liveness: /health
+      readiness: /ready
+    resources:
+      requests:
+        cpu: 150m
+        memory: 384Mi
+      limits:
+        cpu: 800m
+        memory: 1Gi
+    hpa:
+      enabled: true
+      min: 1
+      max: 2
+      cpu: 70
+
+  api-service:
+    enabled: true
+    containerPort: 3000
+    servicePort: 3000
+    replicas: 2
+    userId: 1000
+    secretRefs:
+      - db-credentials
+      - api-auth-secret
+    probes:
+      liveness: /health
+      readiness: /ready
+    resources:
+      requests:
+        cpu: 50m
+        memory: 96Mi
+      limits:
+        cpu: 300m
+        memory: 256Mi
+    hpa:
+      enabled: false
+
+  web-dashboard:
+    enabled: true
+    containerPort: 80
+    servicePort: 80
+    replicas: 1
+    userId: 101
+    secretRefs: []
+    probes:
+      liveness: /
+      readiness: /
+    resources:
+      requests:
+        cpu: 25m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 64Mi
+    hpa:
+      enabled: false

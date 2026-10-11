@@ -1,0 +1,63 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: analytics-service
+  namespace: urban-platform
+spec:
+  selector:
+    app: analytics-service
+  ports:
+    - port: 5001
+      targetPort: 5001
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics-service
+  namespace: urban-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: analytics-service
+  template:
+    metadata:
+      labels:
+        app: analytics-service
+    spec:
+      containers:
+        - name: analytics-service
+          image: docker.io/urbaneipp/analytics-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5001
+          envFrom:
+            - configMapRef:
+                name: urban-config
+            - secretRef:
+                name: db-credentials
+          resources:
+            requests:
+              cpu: 150m
+              memory: 384Mi
+            limits:
+              cpu: 800m
+              memory: 1Gi
+          volumeMounts:
+            - name: models-cache
+              mountPath: /models
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 5001
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5001
+            initialDelaySeconds: 20
+            periodSeconds: 20
+      volumes:
+        - name: models-cache
+          emptyDir: {}

@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: urban-config
+  namespace: urban-platform
+data:
+  AWS_REGION: "us-east-1"
+  S3_RAW_BUCKET: "urban-eipp-dev-raw"
+  S3_PROCESSED_BUCKET: "urban-eipp-dev-processed"
+  S3_MODEL_BUCKET: "urban-eipp-dev-models"
+  PROCESSOR_URL: "http://data-processor:5000"
+  ANALYTICS_URL: "http://analytics-service:5001"
+  POLL_INTERVAL_SECONDS: "900"
+  ANALYTICS_INTERVAL_SECONDS: "1800"
+  LIVE_LOOKBACK_HOURS: "2"
+  USE_PRETRAINED: "true"
+  MODEL_DIR: "/models"
+  MODEL_S3_PREFIX: "models/latest/"
+  LOG_LEVEL: "INFO"

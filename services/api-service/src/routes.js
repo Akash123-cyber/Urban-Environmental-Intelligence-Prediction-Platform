@@ -1,0 +1,133 @@
+const express = require('express');
+const db = require('./db');
+const { requireRole } = require('./auth');
+
+const router = express.Router();
+const ANALYTICS_URL = process.env.ANALYTICS_URL || 'http://analytics-service:5001';
+
+const cityId = (req, res, next) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ error: 'invalid city id' });
+  }
+  req.cityId = id;
+  next();
+};
+
+const clamp = (v, lo, hi, d) => Math.min(hi, Math.max(lo, Number.parseInt(v, 10) || d));
+const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next);
+
+router.get('/cities', wrap(async (_req, res) => {
+  const { rows } = await db.query(
+    'SELECT id, slug, name, state, country, latitude, longitude FROM cities ORDER BY name'
+  );
+  res.json(rows);
+}));
+
+router.get('/cities/:id/current', cityId, wrap(async (req, res) => {
+  const { rows } = await db.query(
+    `SELECT c.id AS city_id, c.slug, c.name, c.state, a.observed_at,
+            a.pm25, a.pm10, a.no2, a.o3, a.co, a.so2, a.aqi, a.is_anomaly,
+            w.temperature, w.humidity, w.wind_speed
+     FROM cities c
+     JOIN air_quality_data a ON a.city_id = c.id
+     LEFT JOIN weather_data w ON w.city_id = c.id AND w.observed_at = a.observed_at
+     WHERE c.id = $1
+     ORDER BY a.observed_at DESC LIMIT 1`,
+    [req.cityId]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'no data for city' });
+  res.json(rows[0]);
+}));
+
+router.get('/cities/:id/history', cityId, wrap(async (req, res) => {
+  const hours = clamp(req.query.hours, 1, 720, 48);
+  const { rows } = await db.query(
+    `SELECT a.observed_at, a.pm25, a.pm10, a.no2, a.o3, a.aqi, a.is_anomaly,
+            w.temperature, w.humidity, w.wind_speed
+     FROM air_quality_data a
+     LEFT JOIN weather_data w ON w.city_id = a.city_id AND w.observed_at = a.observed_at
+     WHERE a.city_id = $1 AND a.observed_at >= now() - make_interval(hours => $2)
+     ORDER BY a.observed_at`,
+    [req.cityId, hours]
+  );
+  res.json(rows);
+}));
+
+router.get('/cities/:id/forecast', cityId, wrap(async (req, res) => {
+  const { rows } = await db.query(
+    `SELECT target_time, predicted_pm25, predicted_pm10, model_version
+     FROM predictions
+     WHERE city_id = $1 AND target_time > now()
+     ORDER BY target_time`,
+    [req.cityId]
+  );
+  if (rows.length) return res.json(rows);
+
+  // If not cached in DB, resolve city slug and query analytics service directly
+  const { rows: cityRows } = await db.query('SELECT id, slug FROM cities WHERE id = $1', [req.cityId]);
+  if (!cityRows[0] || !cityRows[0].slug) {
+    return res.status(404).json({ error: 'city not found' });
+  }
+  const slug = cityRows[0].slug;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+    const r = await fetch(`${ANALYTICS_URL}/forecast/${slug}?hours=24`, { signal: controller.signal });
+    clearTimeout(timeout);
+
+    if (!r.ok) {
+      return res.status(r.status).json({ error: 'forecast not available yet' });
+    }
+    const data = await r.json();
+    res.json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'analytics service unreachable or timed out' });
+  }
+}));
+
+router.get('/cities/:id/anomalies', cityId, wrap(async (req, res) => {
+  const { rows } = await db.query(
+    `SELECT observed_at, pm25, pm10, no2, aqi
+     FROM air_quality_data
+     WHERE city_id = $1 AND is_anomaly
+     ORDER BY observed_at DESC LIMIT 100`,
+    [req.cityId]
+  );
+  res.json(rows);
+}));
+
+router.get('/alerts', wrap(async (_req, res) => {
+  const { rows } = await db.query(
+    `SELECT al.id, c.name AS city, c.slug, al.type, al.severity, al.message, al.created_at
+     FROM alerts al
+     JOIN cities c ON c.id = al.city_id
+     WHERE al.resolved_at IS NULL
+     ORDER BY al.created_at DESC LIMIT 50`
+  );
+  res.json(rows);
+}));
+
+router.patch('/alerts/:id/resolve', wrap(async (req, res) => {
+  const alertId = Number(req.params.id);
+  const { rowCount } = await db.query(
+    `UPDATE alerts SET resolved_at = now() WHERE id = $1 AND resolved_at IS NULL`,
+    [alertId]
+  );
+  if (rowCount === 0) return res.status(404).json({ error: 'alert not found or already resolved' });
+  res.json({ message: 'alert resolved', id: alertId });
+}));
+
+router.get('/admin/system', requireRole('admin'), wrap(async (_req, res) => {
+  const { rows } = await db.query(
+    `SELECT (SELECT count(*) FROM cities)::int AS cities,
+            (SELECT count(*) FROM air_quality_data)::int AS air_rows,
+            (SELECT max(observed_at) FROM air_quality_data) AS last_observation,
+            (SELECT count(*) FROM alerts WHERE resolved_at IS NULL)::int AS open_alerts,
+            (SELECT max(generated_at) FROM predictions) AS last_forecast`
+  );
+  res.json(rows[0]);
+}));
+
+module.exports = router;

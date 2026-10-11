@@ -1,0 +1,485 @@
+#!/bin/bash
+set -euxo pipefail
+exec > >(tee /var/log/user-data.log) 2>&1
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+apt-get install -y curl jq unzip ca-certificates
+
+# 1. Configure 2 GB Swap (essential guard against OOM on 4 GB node)
+if [ ! -f /swapfile ]; then
+  fallocate -l 2G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
+
+# 2. Get Private IP via IMDSv2 for TLS SANs
+TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
+PRIV_IP=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/local-ipv4)
+
+# 3. Install k3s with Traefik & ServiceLB disabled (Ingress-Nginx handles ports 80/443)
+curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server \
+  --disable traefik --disable servicelb \
+  --write-kubeconfig-mode 644 \
+  --tls-san ${public_ip} --tls-san $PRIV_IP \
+  --kubelet-arg=fail-swap-on=false" sh -
+
+# 4. Wait for k3s cluster ready
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+echo 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml' >> /home/ubuntu/.bashrc
+
+until kubectl get nodes 2>/dev/null | grep -q " Ready"; do
+  sleep 3
+done
+
+# 5. Populate Auto-Deploying Manifests for k3s HelmController
+MANIFESTS_DIR=/var/lib/rancher/k3s/server/manifests
+mkdir -p "$MANIFESTS_DIR"
+
+# 5.1 Ingress-Nginx Controller (HostPort 80/443)
+cat <<'EOF' > "$MANIFESTS_DIR/01-ingress-nginx.yaml"
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: ingress-nginx
+  namespace: kube-system
+spec:
+  chart: ingress-nginx
+  repo: https://kubernetes.github.io/ingress-nginx
+  targetNamespace: ingress-nginx
+  createNamespace: true
+  valuesContent: |-
+    controller:
+      hostPort:
+        enabled: true
+      service:
+        type: ClusterIP
+      metrics:
+        enabled: true
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+EOF
+
+# 5.2 Application Namespace, Secrets & ConfigMap
+cat <<EOF > "$MANIFESTS_DIR/02-urban-core.yaml"
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: urban
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-credentials
+  namespace: urban
+type: Opaque
+stringData:
+  POSTGRES_USER: "urban"
+  POSTGRES_DB: "urban"
+  POSTGRES_PASSWORD: "${postgres_password}"
+  DATABASE_URL: "postgresql://urban:${postgres_password}@postgres:5432/urban"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: api-auth-secret
+  namespace: urban
+type: Opaque
+stringData:
+  JWT_SECRET: "${jwt_secret}"
+  ADMIN_EMAIL: "${admin_email}"
+  ADMIN_PASSWORD: "${admin_password}"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: collector-secret
+  namespace: urban
+type: Opaque
+stringData:
+  OPENAQ_API_KEY: "${openaq_api_key}"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: urban-secrets
+  namespace: urban
+type: Opaque
+stringData:
+  POSTGRES_USER: "urban"
+  POSTGRES_DB: "urban"
+  POSTGRES_PASSWORD: "${postgres_password}"
+  DATABASE_URL: "postgresql://urban:${postgres_password}@postgres:5432/urban"
+  JWT_SECRET: "${jwt_secret}"
+  ADMIN_EMAIL: "${admin_email}"
+  ADMIN_PASSWORD: "${admin_password}"
+  OPENAQ_API_KEY: "${openaq_api_key}"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: urban-config
+  namespace: urban
+data:
+  AWS_REGION: "${region}"
+  S3_RAW_BUCKET: "${raw_bucket}"
+  S3_PROCESSED_BUCKET: "${processed_bucket}"
+  S3_MODEL_BUCKET: "${model_bucket}"
+  MODEL_S3_PREFIX: "models/latest/"
+  USE_PRETRAINED: "true"
+  LIVE_LOOKBACK_HOURS: "2"
+  PROCESSOR_URL: "http://data-processor:5000"
+  ANALYTICS_URL: "http://analytics-service:5001"
+  POLL_INTERVAL_SECONDS: "900"
+  ANALYTICS_INTERVAL_SECONDS: "1800"
+  LOG_LEVEL: "INFO"
+EOF
+
+# 5.3 PostgreSQL Database
+cat <<'EOF' > "$MANIFESTS_DIR/03-postgres.yaml"
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: urban
+data:
+  init.sql: |
+    CREATE EXTENSION IF NOT EXISTS pgcrypto;
+    CREATE TABLE IF NOT EXISTS cities (
+      id SERIAL PRIMARY KEY,
+      slug TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      state TEXT NOT NULL DEFAULT '',
+      country TEXT NOT NULL DEFAULT 'India',
+      latitude DOUBLE PRECISION NOT NULL,
+      longitude DOUBLE PRECISION NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS air_quality_data (
+      id BIGSERIAL PRIMARY KEY,
+      city_id INT NOT NULL REFERENCES cities(id) ON DELETE CASCADE,
+      observed_at TIMESTAMPTZ NOT NULL,
+      pm25 DOUBLE PRECISION, pm10 DOUBLE PRECISION, no2 DOUBLE PRECISION,
+      o3 DOUBLE PRECISION, co DOUBLE PRECISION, so2 DOUBLE PRECISION,
+      aqi INT, is_anomaly BOOLEAN NOT NULL DEFAULT FALSE,
+      source TEXT NOT NULL DEFAULT 'open-meteo',
+      UNIQUE (city_id, observed_at)
+    );
+    CREATE INDEX IF NOT EXISTS idx_aq_city_time ON air_quality_data (city_id, observed_at DESC);
+    CREATE TABLE IF NOT EXISTS weather_data (
+      id BIGSERIAL PRIMARY KEY,
+      city_id INT NOT NULL REFERENCES cities(id) ON DELETE CASCADE,
+      observed_at TIMESTAMPTZ NOT NULL,
+      temperature DOUBLE PRECISION, humidity DOUBLE PRECISION, wind_speed DOUBLE PRECISION,
+      UNIQUE (city_id, observed_at)
+    );
+    CREATE INDEX IF NOT EXISTS idx_wx_city_time ON weather_data (city_id, observed_at DESC);
+    CREATE TABLE IF NOT EXISTS predictions (
+      id BIGSERIAL PRIMARY KEY,
+      city_id INT NOT NULL REFERENCES cities(id) ON DELETE CASCADE,
+      generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      target_time TIMESTAMPTZ NOT NULL,
+      predicted_pm25 DOUBLE PRECISION, predicted_pm10 DOUBLE PRECISION,
+      model_version TEXT, based_on TIMESTAMPTZ,
+      UNIQUE (city_id, target_time)
+    );
+    CREATE TABLE IF NOT EXISTS alerts (
+      id BIGSERIAL PRIMARY KEY,
+      city_id INT NOT NULL REFERENCES cities(id) ON DELETE CASCADE,
+      type TEXT NOT NULL, severity TEXT NOT NULL DEFAULT 'warning',
+      message TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      resolved_at TIMESTAMPTZ
+    );
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY, email TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    INSERT INTO cities (slug, name, state, country, latitude, longitude) VALUES
+      ('delhi', 'Delhi', 'Delhi', 'India', 28.6139, 77.2090),
+      ('mumbai', 'Mumbai', 'Maharashtra', 'India', 19.0760, 72.8777),
+      ('kolkata', 'Kolkata', 'West Bengal', 'India', 22.5726, 88.3639),
+      ('chennai', 'Chennai', 'Tamil Nadu', 'India', 13.0827, 80.2707),
+      ('bengaluru', 'Bengaluru', 'Karnataka', 'India', 12.9716, 77.5946)
+    ON CONFLICT (slug) DO NOTHING;
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: urban
+spec:
+  ports:
+    - { name: pg, port: 5432, targetPort: 5432 }
+  selector:
+    app: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: urban
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels: { app: postgres }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - { name: pg, containerPort: 5432 }
+          env:
+            - { name: POSTGRES_USER, value: urban }
+            - { name: POSTGRES_DB, value: urban }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: db-credentials, key: POSTGRES_PASSWORD } }
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "urban", "-d", "urban"] }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+            - { name: init, mountPath: /docker-entrypoint-initdb.d }
+      volumes:
+        - name: init
+          configMap: { name: postgres-init }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources: { requests: { storage: 5Gi } }
+EOF
+
+# 5.4 Application Microservices (pulling from Docker Hub)
+cat <<EOF > "$MANIFESTS_DIR/04-urban-apps.yaml"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-collector
+  namespace: urban
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: data-collector }
+  template:
+    metadata:
+      labels: { app: data-collector }
+    spec:
+      securityContext: { runAsNonRoot: true, runAsUser: 10001 }
+      containers:
+        - name: data-collector
+          image: "${docker_registry}/data-collector:${docker_tag}"
+          ports: [{ name: http, containerPort: 8080 }]
+          envFrom:
+            - configMapRef: { name: urban-config }
+            - secretRef: { name: collector-secret }
+          resources:
+            requests: { cpu: 50m, memory: 96Mi }
+            limits: { cpu: 250m, memory: 256Mi }
+          readinessProbe:
+            httpGet: { path: /ready, port: http }
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-collector
+  namespace: urban
+spec:
+  ports: [{ name: http, port: 8080, targetPort: http }]
+  selector: { app: data-collector }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-processor
+  namespace: urban
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: data-processor }
+  template:
+    metadata:
+      labels: { app: data-processor }
+    spec:
+      securityContext: { runAsNonRoot: true, runAsUser: 10001 }
+      containers:
+        - name: data-processor
+          image: "${docker_registry}/data-processor:${docker_tag}"
+          ports: [{ name: http, containerPort: 5000 }]
+          envFrom:
+            - configMapRef: { name: urban-config }
+            - secretRef: { name: db-credentials }
+          resources:
+            requests: { cpu: 100m, memory: 192Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+          readinessProbe:
+            httpGet: { path: /ready, port: http }
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-processor
+  namespace: urban
+spec:
+  ports: [{ name: http, port: 5000, targetPort: http }]
+  selector: { app: data-processor }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics-service
+  namespace: urban
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: analytics-service }
+  template:
+    metadata:
+      labels: { app: analytics-service }
+    spec:
+      securityContext: { runAsNonRoot: true, runAsUser: 10001 }
+      containers:
+        - name: analytics-service
+          image: "${docker_registry}/analytics-service:${docker_tag}"
+          ports: [{ name: http, containerPort: 5001 }]
+          envFrom:
+            - configMapRef: { name: urban-config }
+            - secretRef: { name: db-credentials }
+          resources:
+            requests: { cpu: 150m, memory: 384Mi }
+            limits: { cpu: 800m, memory: 768Mi }
+          readinessProbe:
+            httpGet: { path: /ready, port: http }
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: analytics-service
+  namespace: urban
+spec:
+  ports: [{ name: http, port: 5001, targetPort: http }]
+  selector: { app: analytics-service }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-service
+  namespace: urban
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: api-service }
+  template:
+    metadata:
+      labels: { app: api-service }
+    spec:
+      securityContext: { runAsNonRoot: true, runAsUser: 1000 }
+      containers:
+        - name: api-service
+          image: "${docker_registry}/api-service:${docker_tag}"
+          ports: [{ name: http, containerPort: 3000 }]
+          envFrom:
+            - configMapRef: { name: urban-config }
+            - secretRef: { name: db-credentials }
+            - secretRef: { name: api-auth-secret }
+          resources:
+            requests: { cpu: 50m, memory: 96Mi }
+            limits: { cpu: 300m, memory: 256Mi }
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-service
+  namespace: urban
+spec:
+  ports: [{ name: http, port: 3000, targetPort: http }]
+  selector: { app: api-service }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-dashboard
+  namespace: urban
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: web-dashboard }
+  template:
+    metadata:
+      labels: { app: web-dashboard }
+    spec:
+      securityContext: { runAsNonRoot: true, runAsUser: 101 }
+      containers:
+        - name: web-dashboard
+          image: "${docker_registry}/web-dashboard:${docker_tag}"
+          ports: [{ name: http, containerPort: 8080 }]
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { cpu: 100m, memory: 96Mi }
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-dashboard
+  namespace: urban
+spec:
+  ports: [{ name: http, port: 80, targetPort: http }]
+  selector: { app: web-dashboard }
+EOF
+
+# 5.5 Ingress Resource routing traffic via nip.io
+cat <<EOF > "$MANIFESTS_DIR/05-urban-ingress.yaml"
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: urban-ingress
+  namespace: urban
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: "app.${public_ip}.nip.io"
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: api-service
+                port: { number: 3000 }
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web-dashboard
+                port: { number: 80 }
+EOF
+
+echo "bootstrap complete" > /var/log/bootstrap-done
