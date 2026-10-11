@@ -81,7 +81,7 @@ router.get('/cities/:id/forecast', cityId, wrap(async (req, res) => {
       return res.status(r.status).json({ error: 'forecast not available yet' });
     }
     const data = await r.json();
-    res.json(data);
+    res.json(data.forecast || data);
   } catch (err) {
     res.status(502).json({ error: 'analytics service unreachable or timed out' });
   }

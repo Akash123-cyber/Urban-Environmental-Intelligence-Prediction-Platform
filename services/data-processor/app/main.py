@@ -114,7 +114,9 @@ async def ingest_batch(payload: dict[str, Any]):
 
             for idx, t_str in enumerate(air_times):
                 try:
-                    obs_time = datetime.fromisoformat(t_str).replace(tzinfo=timezone.utc)
+                    obs_time = datetime.fromisoformat(t_str.replace("Z", "+00:00"))
+                    if obs_time.tzinfo is None:
+                        obs_time = obs_time.replace(tzinfo=timezone.utc)
                 except Exception:
                     continue
 
@@ -150,7 +152,9 @@ async def ingest_batch(payload: dict[str, Any]):
 
             for idx, t_str in enumerate(wx_times):
                 try:
-                    obs_time = datetime.fromisoformat(t_str).replace(tzinfo=timezone.utc)
+                    obs_time = datetime.fromisoformat(t_str.replace("Z", "+00:00"))
+                    if obs_time.tzinfo is None:
+                        obs_time = obs_time.replace(tzinfo=timezone.utc)
                 except Exception:
                     continue
 

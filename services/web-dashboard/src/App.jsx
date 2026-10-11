@@ -72,7 +72,7 @@ export default function App() {
       ]);
       setCurrent(cur);
       setHistory(hist);
-      setForecast(Array.isArray(fc) ? fc : (fc?.predictions || []));
+      setForecast(Array.isArray(fc) ? fc : (fc?.forecast || fc?.predictions || []));
       setAlerts(al);
       setError('');
     } catch (err) {

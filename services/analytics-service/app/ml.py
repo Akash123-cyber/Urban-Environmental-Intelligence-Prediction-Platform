@@ -51,7 +51,16 @@ class S3ModelRegistry:
             self._s3 = s3_client
         else:
             import boto3
-            self._s3 = boto3.client("s3", region_name=region or os.getenv("AWS_REGION"))
+            kwargs = {"region_name": region or os.getenv("AWS_REGION", "us-east-1")}
+            endpoint_url = os.getenv("S3_ENDPOINT_URL")
+            if endpoint_url:
+                kwargs["endpoint_url"] = endpoint_url
+            ak = os.getenv("AWS_ACCESS_KEY_ID")
+            sk = os.getenv("AWS_SECRET_ACCESS_KEY")
+            if ak and sk:
+                kwargs["aws_access_key_id"] = ak
+                kwargs["aws_secret_access_key"] = sk
+            self._s3 = boto3.client("s3", **kwargs)
 
     @staticmethod
     def _validate(city_slug: str, target: str) -> None:
