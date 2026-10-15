@@ -1,8 +1,105 @@
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: urban
+data:
+  init.sql: |
+    CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+    CREATE TABLE IF NOT EXISTS cities (
+      id         SERIAL PRIMARY KEY,
+      slug       TEXT NOT NULL UNIQUE,
+      name       TEXT NOT NULL,
+      state      TEXT NOT NULL DEFAULT '',
+      country    TEXT NOT NULL DEFAULT 'India',
+      latitude   DOUBLE PRECISION NOT NULL,
+      longitude  DOUBLE PRECISION NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    CREATE TABLE IF NOT EXISTS air_quality_data (
+      id          BIGSERIAL PRIMARY KEY,
+      city_id     INT NOT NULL REFERENCES cities(id) ON DELETE CASCADE,
+      observed_at TIMESTAMPTZ NOT NULL,
+      pm25        DOUBLE PRECISION,
+      pm10        DOUBLE PRECISION,
+      no2         DOUBLE PRECISION,
+      o3          DOUBLE PRECISION,
+      co          DOUBLE PRECISION,
+      so2         DOUBLE PRECISION,
+      aqi         INT,
+      is_anomaly  BOOLEAN NOT NULL DEFAULT FALSE,
+      source      TEXT NOT NULL DEFAULT 'open-meteo',
+      UNIQUE (city_id, observed_at)
+    );
+    CREATE INDEX IF NOT EXISTS idx_aq_city_time ON air_quality_data (city_id, observed_at DESC);
+
+    CREATE TABLE IF NOT EXISTS weather_data (
+      id          BIGSERIAL PRIMARY KEY,
+      city_id     INT NOT NULL REFERENCES cities(id) ON DELETE CASCADE,
+      observed_at TIMESTAMPTZ NOT NULL,
+      temperature DOUBLE PRECISION,
+      humidity    DOUBLE PRECISION,
+      wind_speed  DOUBLE PRECISION,
+      UNIQUE (city_id, observed_at)
+    );
+    CREATE INDEX IF NOT EXISTS idx_wx_city_time ON weather_data (city_id, observed_at DESC);
+
+    CREATE TABLE IF NOT EXISTS predictions (
+      id             BIGSERIAL PRIMARY KEY,
+      city_id        INT NOT NULL REFERENCES cities(id) ON DELETE CASCADE,
+      generated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      target_time    TIMESTAMPTZ NOT NULL,
+      predicted_pm25 DOUBLE PRECISION,
+      predicted_pm10 DOUBLE PRECISION,
+      model_version  TEXT,
+      based_on       TIMESTAMPTZ,
+      UNIQUE (city_id, target_time)
+    );
+    CREATE INDEX IF NOT EXISTS idx_predictions_city_target ON predictions (city_id, target_time DESC);
+
+    CREATE TABLE IF NOT EXISTS alerts (
+      id          BIGSERIAL PRIMARY KEY,
+      city_id     INT NOT NULL REFERENCES cities(id) ON DELETE CASCADE,
+      type        TEXT NOT NULL,
+      severity    TEXT NOT NULL DEFAULT 'warning',
+      message     TEXT NOT NULL,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      resolved_at TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS idx_alerts_open ON alerts (city_id, type) WHERE resolved_at IS NULL;
+
+    CREATE TABLE IF NOT EXISTS users (
+      id            SERIAL PRIMARY KEY,
+      email         TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      role          TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user','admin')),
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    INSERT INTO cities (slug, name, state, country, latitude, longitude) VALUES
+      ('delhi', 'Delhi', 'Delhi', 'India', 28.6139, 77.2090),
+      ('mumbai', 'Mumbai', 'Maharashtra', 'India', 19.0760, 72.8777),
+      ('kolkata', 'Kolkata', 'West Bengal', 'India', 22.5726, 88.3639),
+      ('chennai', 'Chennai', 'Tamil Nadu', 'India', 13.0827, 80.2707),
+      ('bengaluru', 'Bengaluru', 'Karnataka', 'India', 12.9716, 77.5946),
+      ('hyderabad', 'Hyderabad', 'Telangana', 'India', 17.3850, 78.4867),
+      ('ahmedabad', 'Ahmedabad', 'Gujarat', 'India', 23.0225, 72.5714),
+      ('pune', 'Pune', 'Maharashtra', 'India', 18.5204, 73.8567),
+      ('jaipur', 'Jaipur', 'Rajasthan', 'India', 26.9124, 75.7873),
+      ('lucknow', 'Lucknow', 'Uttar Pradesh', 'India', 26.8467, 80.9462)
+    ON CONFLICT (slug) DO UPDATE SET
+      name = EXCLUDED.name,
+      state = EXCLUDED.state,
+      latitude = EXCLUDED.latitude,
+      longitude = EXCLUDED.longitude;
+---
+apiVersion: v1
 kind: Service
 metadata:
   name: postgres
-  namespace: urban-platform
+  namespace: urban
 spec:
   selector:
     app: postgres
@@ -15,7 +112,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: postgres
-  namespace: urban-platform
+  namespace: urban
 spec:
   serviceName: postgres
   replicas: 1
@@ -56,6 +153,12 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+      volumes:
+        - name: init
+          configMap:
+            name: postgres-init
   volumeClaimTemplates:
     - metadata:
         name: data

@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: data-processor
-  namespace: urban-platform
+  namespace: urban
 spec:
   selector:
     app: data-processor
@@ -14,7 +14,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: data-processor
-  namespace: urban-platform
+  namespace: urban
 spec:
   replicas: 1
   selector:

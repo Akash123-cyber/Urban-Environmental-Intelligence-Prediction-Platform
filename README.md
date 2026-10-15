@@ -9,7 +9,7 @@ An enterprise-grade, cloud-native environmental intelligence and predictive anal
 ```
                        +-----------------------------------+
                        |    Google Colab Model Training    |
-                       | (LightGBM, Chronological Splits)  |
+                       |  (XGBoost, Chronological Splits)  |
                        +-----------------+-----------------+
                                          |
                                    Uploads Models
@@ -44,7 +44,7 @@ An enterprise-grade, cloud-native environmental intelligence and predictive anal
 
 ## 2. Key Architectural Decisions
 
-- **ML Training Outside Cluster**: Machine learning models are trained in Google Colab (LightGBM with chronological train/validation/test splits against persistence baselines) and synced directly to S3. Production pods do not train in-pod, preventing OOM crashes.
+- **ML Training Outside Cluster**: Machine learning models are trained in Google Colab (XGBoost with chronological train/validation/test splits against persistence baselines) and synced directly to S3. Production pods do not train in-pod, preventing OOM crashes.
 - **Docker Images from Docker Hub**: Container images are built in CI/CD and pulled directly by Kubernetes / Docker Compose.
 - **Two-Tier Terraform Architecture**:
   - `terraform/persistent/`: S3 buckets (`raw`, `processed`, `models`) with `prevent_destroy = true`. Never touched during compute maintenance.

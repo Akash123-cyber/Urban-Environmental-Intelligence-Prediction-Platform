@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: urban-platform
+  name: urban
   labels:
     pod-security.kubernetes.io/enforce: baseline
     pod-security.kubernetes.io/warn: restricted
