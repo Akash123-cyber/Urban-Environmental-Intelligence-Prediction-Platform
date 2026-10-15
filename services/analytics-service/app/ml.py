@@ -14,7 +14,7 @@ import pandas as pd
 
 TARGETS = {"pm25", "pm10"}
 WX = ["temperature", "humidity", "wind_speed"]
-FEATURES = ["lag_1", "lag_2", "lag_3", "lag_24", "roll_mean_6", "hour_sin", "hour_cos", "dow", *WX]
+FEATURES = ["lag_1", "lag_2", "lag_3", "lag_24", "diff_1_2", "diff_1_24", "roll_mean_6", "hour_sin", "hour_cos", "dow", *WX]
 
 
 class ModelUnavailable(RuntimeError):
@@ -142,6 +142,8 @@ def make_features(df: pd.DataFrame, target: str) -> pd.DataFrame:
     x = pd.DataFrame(index=df.index)
     for lag in (1, 2, 3, 24):
         x[f"lag_{lag}"] = series.shift(lag)
+    x["diff_1_2"] = x["lag_1"] - x["lag_2"]
+    x["diff_1_24"] = x["lag_1"] - x["lag_24"]
     x["roll_mean_6"] = series.shift(1).rolling(6).mean()
     x["hour_sin"] = np.sin(2 * np.pi * df.index.hour / 24)
     x["hour_cos"] = np.cos(2 * np.pi * df.index.hour / 24)
@@ -163,6 +165,7 @@ def forecast(bundle: dict[str, Any], df: pd.DataFrame, target: str, steps: int =
         raise ValueError("target has no valid observations")
     hist = hist.loc[:last_valid]
     wx = hist[WX].ffill().iloc[-1].fillna(0.0).tolist()
+    is_delta = bool(bundle.get("is_delta", False))
     result: list[tuple[pd.Timestamp, float]] = []
     for _ in range(steps):
         next_time = hist.index[-1] + pd.Timedelta(hours=1)
@@ -170,7 +173,11 @@ def forecast(bundle: dict[str, Any], df: pd.DataFrame, target: str, steps: int =
         row = make_features(hist, target).iloc[[-1]]
         if row.isna().any(axis=None):
             raise ValueError("feature row contains missing values; more history is required")
-        prediction = max(float(bundle["model"].predict(row)[0]), 0.0)
+        raw_pred = float(bundle["model"].predict(row)[0])
+        if is_delta:
+            prediction = max(float(row["lag_1"].iloc[0] + raw_pred), 0.0)
+        else:
+            prediction = max(raw_pred, 0.0)
         hist.loc[next_time, target] = prediction
         result.append((next_time, prediction))
     return result
