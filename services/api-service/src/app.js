@@ -40,6 +40,27 @@ app.get('/metrics', async (_req, res) => {
 // Authentication Routes
 app.post('/api/auth/login', (req, res, next) => login(req, res).catch(next));
 
+// Public Model Registry & Hot-Reload Webhooks (for Colab / Offline ML triggers)
+const ANALYTICS_URL = process.env.ANALYTICS_URL || 'http://analytics-service:5001';
+app.get(['/models', '/api/models'], async (_req, res) => {
+  try {
+    const r = await fetch(`${ANALYTICS_URL}/models`);
+    const data = await r.json();
+    res.status(r.status).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'analytics service unreachable', details: err.message });
+  }
+});
+app.post(['/models/reload', '/api/models/reload'], async (_req, res) => {
+  try {
+    const r = await fetch(`${ANALYTICS_URL}/models/reload`, { method: 'POST' });
+    const data = await r.json();
+    res.status(r.status).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'analytics service unreachable', details: err.message });
+  }
+});
+
 // Protected API Routes
 app.use('/api', requireAuth, routes);
 
