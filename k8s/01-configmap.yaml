@@ -4,10 +4,10 @@ metadata:
   name: urban-config
   namespace: urban
 data:
-  AWS_REGION: "us-east-1"
-  S3_RAW_BUCKET: "urban-eipp-dev-raw"
-  S3_PROCESSED_BUCKET: "urban-eipp-dev-processed"
-  S3_MODEL_BUCKET: "urban-eipp-dev-models"
+  AWS_REGION: "ap-south-1"
+  S3_RAW_BUCKET: "urban-eipp-407676141907-raw"
+  S3_PROCESSED_BUCKET: "urban-eipp-407676141907-processed"
+  S3_MODEL_BUCKET: "urban-eipp-407676141907-models"
   PROCESSOR_URL: "http://data-processor:5000"
   ANALYTICS_URL: "http://analytics-service:5001"
   COLLECTOR_URL: "http://data-collector:8080"

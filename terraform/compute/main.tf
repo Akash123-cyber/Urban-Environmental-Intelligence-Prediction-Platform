@@ -7,10 +7,6 @@ data "aws_subnets" "default" {
     name   = "vpc-id"
     values = [data.aws_vpc.default.id]
   }
-  filter {
-    name   = "availability-zone"
-    values = ["us-east-1a", "us-east-1b", "us-east-1c", "us-east-1d", "us-east-1f"]
-  }
 }
 
 data "aws_ami" "ubuntu" {
@@ -167,7 +163,7 @@ resource "aws_instance" "node" {
   iam_instance_profile        = aws_iam_instance_profile.node.name
   associate_public_ip_address = true
 
-  user_data = templatefile("${path.module}/templates/user_data.sh.tftpl", {
+  user_data_base64 = base64gzip(templatefile("${path.module}/templates/user_data.sh.tftpl", {
     public_ip         = aws_eip.node.public_ip
     region            = var.region
     raw_bucket        = var.bucket_names["raw"]
@@ -180,7 +176,7 @@ resource "aws_instance" "node" {
     openaq_api_key    = var.openaq_api_key
     docker_registry   = var.docker_registry
     docker_tag        = var.docker_tag
-  })
+  }))
 
   metadata_options {
     http_endpoint               = "enabled"

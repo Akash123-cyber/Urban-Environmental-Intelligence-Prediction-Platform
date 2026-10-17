@@ -287,6 +287,7 @@ spec:
       containers:
         - name: data-collector
           image: "${docker_registry}/data-collector:${docker_tag}"
+          imagePullPolicy: IfNotPresent
           ports: [{ name: http, containerPort: 8080 }]
           envFrom:
             - configMapRef: { name: urban-config }
@@ -324,6 +325,7 @@ spec:
       containers:
         - name: data-processor
           image: "${docker_registry}/data-processor:${docker_tag}"
+          imagePullPolicy: IfNotPresent
           ports: [{ name: http, containerPort: 5000 }]
           envFrom:
             - configMapRef: { name: urban-config }
@@ -361,6 +363,7 @@ spec:
       containers:
         - name: analytics-service
           image: "${docker_registry}/analytics-service:${docker_tag}"
+          imagePullPolicy: IfNotPresent
           ports: [{ name: http, containerPort: 5001 }]
           envFrom:
             - configMapRef: { name: urban-config }
@@ -398,6 +401,7 @@ spec:
       containers:
         - name: api-service
           image: "${docker_registry}/api-service:${docker_tag}"
+          imagePullPolicy: IfNotPresent
           ports: [{ name: http, containerPort: 3000 }]
           envFrom:
             - configMapRef: { name: urban-config }
@@ -435,6 +439,7 @@ spec:
       containers:
         - name: web-dashboard
           image: "${docker_registry}/web-dashboard:${docker_tag}"
+          imagePullPolicy: IfNotPresent
           ports: [{ name: http, containerPort: 80 }]
           resources:
             requests: { cpu: 25m, memory: 32Mi }
@@ -481,15 +486,226 @@ spec:
               service:
                 name: web-dashboard
                 port: { number: 80 }
+    - host: "api.${public_ip}.nip.io"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api-service
+                port: { number: 3000 }
 EOF
 
-# 6. Bootstrap Jenkins CI/CD Controller on port 8080
-mkdir -p /var/jenkins_home
+# 6. Install Helm 3 on host
+curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+# 7. Pre-pull Microservice Docker Images and Import into K3s containerd
+for svc in data-collector data-processor analytics-service api-service web-dashboard; do
+  docker pull ${docker_registry}/$svc:${docker_tag} || true
+  docker save ${docker_registry}/$svc:${docker_tag} | k3s ctr images import - 2>/dev/null || true
+done
+
+# 8. Deploy Prometheus & Grafana Observability Stack
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+
+kubectl create namespace monitoring || true
+kubectl -n monitoring create secret generic grafana-admin \
+  --from-literal=admin-user=admin \
+  --from-literal=admin-password='UrbanEnvGrafana2026!#' \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+cat <<'EOFVAL' > /var/lib/kube-prometheus-stack-values.yaml
+fullnameOverride: kps
+
+defaultRules:
+  create: true
+  rules:
+    etcd: false
+    kubeControllerManager: false
+    kubeSchedulerAlerting: false
+    kubeProxy: false
+
+kubeEtcd: { enabled: false }
+kubeControllerManager: { enabled: false }
+kubeScheduler: { enabled: false }
+kubeProxy: { enabled: false }
+
+prometheus:
+  prometheusSpec:
+    retention: 3d
+    retentionSize: 4GB
+    scrapeInterval: 30s
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    resources:
+      requests: { cpu: 50m, memory: 200Mi }
+      limits: { memory: 600Mi }
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources: { requests: { storage: 3Gi } }
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests: { cpu: 10m, memory: 32Mi }
+      limits: { memory: 96Mi }
+
+grafana:
+  adminUser: admin
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - grafana.${public_ip}.nip.io
+  resources:
+    requests: { cpu: 30m, memory: 96Mi }
+    limits: { memory: 256Mi }
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      searchNamespace: ALL
+  persistence: { enabled: false }
+
+kube-state-metrics:
+  resources: { requests: { cpu: 10m, memory: 32Mi }, limits: { memory: 96Mi } }
+
+prometheus-node-exporter:
+  resources: { requests: { cpu: 10m, memory: 16Mi }, limits: { memory: 48Mi } }
+
+prometheusOperator:
+  resources: { requests: { cpu: 15m, memory: 48Mi }, limits: { memory: 160Mi } }
+EOFVAL
+
+# Wait for ingress-nginx controller before deploying helm chart
+until kubectl -n ingress-nginx get pods -l app.kubernetes.io/component=controller 2>/dev/null | grep -q "Running"; do
+  sleep 5
+done
+
+helm upgrade --install kps prometheus-community/kube-prometheus-stack \
+  -n monitoring \
+  -f /var/lib/kube-prometheus-stack-values.yaml \
+  --timeout 10m || true
+
+# 9. Bootstrap Jenkins CI/CD Controller on port 8080
+mkdir -p /var/jenkins_home/.kube
 chown -R 1000:1000 /var/jenkins_home
+chmod 666 /var/run/docker.sock
+
+# Copy K3s kubeconfig for Jenkins master and configure private IP
+cp /etc/rancher/k3s/k3s.yaml /var/jenkins_home/.kube/config
+sed -i "s|127.0.0.1:6443|$PRIV_IP:6443|g" /var/jenkins_home/.kube/config
+chown -R 1000:1000 /var/jenkins_home/.kube
+chmod 600 /var/jenkins_home/.kube/config
+
+# Run Jenkins container
 docker run -d --name jenkins --restart unless-stopped \
   -p 8080:8080 -p 50000:50000 \
   -v /var/jenkins_home:/var/jenkins_home \
   -v /var/run/docker.sock:/var/run/docker.sock \
+  -e JAVA_OPTS="-Djenkins.install.runSetupWizard=false" \
   jenkins/jenkins:lts-jdk21
+
+# Wait for Jenkins container to start
+sleep 15
+until docker exec jenkins test -f /var/jenkins_home/war/WEB-INF/lib/jenkins-core-*.jar 2>/dev/null || docker exec jenkins curl -sf http://localhost:8080/ >/dev/null 2>&1; do
+  sleep 5
+done
+
+# Install Jenkins Toolchain inside container
+docker exec -u 0 jenkins bash -c "
+  apt-get update && apt-get install -y curl ca-certificates git python3 python3-pip python3-venv
+  curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh && usermod -aG docker jenkins || true
+  curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs || true
+  curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash || true
+  curl -LO \"https://dl.k8s.io/release/\$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl\"
+  chmod +x kubectl && mv kubectl /usr/local/bin/
+" || true
+
+# Install Jenkins Essential Plugins
+docker exec -u 0 jenkins jenkins-plugin-cli --plugins git github workflow-aggregator pipeline-stage-view ws-cleanup || true
+
+# Configure Admin credentials in Jenkins Groovy initialization
+mkdir -p /var/jenkins_home/init.groovy.d
+cat <<'EOFG' > /var/jenkins_home/init.groovy.d/basic-security.groovy
+#!groovy
+import jenkins.model.*
+import hudson.security.*
+
+def instance = Jenkins.getInstance()
+def hudsonRealm = new HudsonPrivateSecurityRealm(false)
+hudsonRealm.createAccount("admin", "53745d3c15584eccb436467585cfde9d")
+instance.setSecurityRealm(hudsonRealm)
+
+def strategy = new FullControlOnceLoggedInAuthorizationStrategy()
+strategy.setAllowAnonymousRead(false)
+instance.setAuthorizationStrategy(strategy)
+instance.save()
+EOFG
+# Create UrbanEIIP-Pipeline job directly in Jenkins home directory
+mkdir -p /var/jenkins_home/jobs/UrbanEIIP-Pipeline
+cat <<'EOFJOB' > /var/jenkins_home/jobs/UrbanEIIP-Pipeline/config.xml
+<?xml version='1.1' encoding='UTF-8'?>
+<flow-definition plugin="workflow-job">
+  <actions/>
+  <description>Automated CI/CD Pipeline for Urban Environmental Intelligence &amp; Prediction Platform</description>
+  <keepDependencies>false</keepDependencies>
+  <properties>
+    <com.coravy.hudson.plugins.github.GithubProjectProperty plugin="github">
+      <projectUrl>https://github.com/Akash123-cyber/Urban-Environmental-Intelligence-Prediction-Platform.git/</projectUrl>
+      <displayName>UrbanEIIP</displayName>
+    </com.coravy.hudson.plugins.github.GithubProjectProperty>
+    <org.jenkinsci.plugins.workflow.job.properties.PipelineTriggersJobProperty>
+      <triggers>
+        <com.cloudbees.jenkins.GitHubPushTrigger plugin="github">
+          <spec></spec>
+        </com.cloudbees.jenkins.GitHubPushTrigger>
+      </triggers>
+    </org.jenkinsci.plugins.workflow.job.properties.PipelineTriggersJobProperty>
+  </properties>
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsScmFlowDefinition" plugin="workflow-cps">
+    <scm class="hudson.plugins.git.GitSCM" plugin="git">
+      <configVersion>2</configVersion>
+      <userRemoteConfigs>
+        <hudson.plugins.git.UserRemoteConfig>
+          <url>https://github.com/Akash123-cyber/Urban-Environmental-Intelligence-Prediction-Platform.git</url>
+        </hudson.plugins.git.UserRemoteConfig>
+      </userRemoteConfigs>
+      <branches>
+        <hudson.plugins.git.BranchSpec>
+          <name>*/main</name>
+        </hudson.plugins.git.BranchSpec>
+      </branches>
+      <doGenerateSubmoduleConfigurations>false</doGenerateSubmoduleConfigurations>
+      <submoduleCfg class="empty-list"/>
+      <extensions/>
+    </scm>
+    <scriptPath>Jenkinsfile</scriptPath>
+    <lightweight>true</lightweight>
+  </definition>
+  <triggers/>
+  <disabled>false</disabled>
+</flow-definition>
+EOFJOB
+chown -R 1000:1000 /var/jenkins_home/jobs
+
+# Restart Jenkins to load plugins, security config, and pipeline job
+docker restart jenkins
+
+# Wait for Jenkins to come back up
+sleep 20
+until curl -sf -u admin:53745d3c15584eccb436467585cfde9d http://localhost:8080/api/json >/dev/null 2>&1; do
+  sleep 5
+done
 
 echo "bootstrap complete" > /var/log/bootstrap-done

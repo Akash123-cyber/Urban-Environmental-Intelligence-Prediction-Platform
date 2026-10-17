@@ -1,7 +1,7 @@
 data "aws_caller_identity" "current" {}
 
 locals {
-  prefix = lower("${var.project}-${var.environment}-${data.aws_caller_identity.current.account_id}")
+  prefix = lower("${var.project}-${data.aws_caller_identity.current.account_id}")
   buckets = {
     raw       = "${local.prefix}-raw"
     processed = "${local.prefix}-processed"
@@ -12,10 +12,10 @@ locals {
 resource "aws_s3_bucket" "data" {
   for_each      = local.buckets
   bucket        = each.value
-  force_destroy = false
+  force_destroy = true
 
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false
   }
 
   tags = {

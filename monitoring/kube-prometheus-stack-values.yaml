@@ -47,7 +47,7 @@ grafana:
     enabled: true
     ingressClassName: nginx
     hosts:
-      - grafana.184.196.112.96.nip.io
+      - grafana.13.206.193.63.nip.io
   resources:
     requests: { cpu: 30m, memory: 96Mi }
     limits: { memory: 256Mi }

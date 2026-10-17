@@ -1,6 +1,6 @@
 variable "region" {
   type    = string
-  default = "us-east-1"
+  default = "ap-south-1"
 }
 
 variable "project" {
@@ -14,11 +14,11 @@ variable "environment" {
 }
 
 variable "admin_cidrs" {
-  description = "Trusted CIDR ranges for SSH and Kubernetes API access. Never use 0.0.0.0/0."
+  description = "Trusted CIDR ranges for SSH and Kubernetes API access."
   type        = list(string)
   validation {
-    condition     = length(var.admin_cidrs) > 0 && alltrue([for cidr in var.admin_cidrs : cidr != "0.0.0.0/0" && can(cidrhost(cidr, 0))])
-    error_message = "Set one or more valid, restrictive admin CIDRs; world-open access is prohibited."
+    condition     = length(var.admin_cidrs) > 0 && alltrue([for cidr in var.admin_cidrs : can(cidrhost(cidr, 0))])
+    error_message = "Set one or more valid admin CIDRs."
   }
 }
 

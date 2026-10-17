@@ -1,6 +1,6 @@
 # 🌍 Urban Environmental Intelligence & Prediction Platform (UrbanEIIP)
 
-[![Build Status](https://img.shields.io/badge/CI%2FCD-Jenkins%20Automated-blue?logo=jenkins)](http://184.196.112.96:8080)
+[![Build Status](https://img.shields.io/badge/CI%2FCD-Jenkins%20Automated-blue?logo=jenkins)](http://13.206.193.63:8080)
 [![AWS Cloud](https://img.shields.io/badge/AWS-EC2%20%7C%20S3%20%7C%20EIP-orange?logo=amazon-aws)](https://aws.amazon.com)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-K3s%20Cluster-326ce5?logo=kubernetes)](https://k3s.io)
 [![Machine Learning](https://img.shields.io/badge/ML-LightGBM%20Delta%20Residual-brightgreen?logo=scikit-learn)](https://lightgbm.readthedocs.io)
@@ -14,13 +14,13 @@ The complete cloud-native infrastructure is actively provisioned and hosted on A
 
 | Component | Endpoint | Description |
 | :--- | :--- | :--- |
-| **🌐 Interactive Dashboard** | [http://app.184.196.112.96.nip.io](http://app.184.196.112.96.nip.io) | React Frontend with Multi-Metric Forecasting & On-Demand Telemetry Refresh |
-| **🔌 API Gateway** | [http://api.184.196.112.96.nip.io](http://api.184.196.112.96.nip.io) | Node.js Express Gateway (Auth, Telemetry, Health, Inference Trigger) |
-| **🩺 API Health Check** | [http://api.184.196.112.96.nip.io/health](http://api.184.196.112.96.nip.io/health) | Real-time service readiness & database connectivity verification |
-| **📊 Grafana Observability** | [http://grafana.184.196.112.96.nip.io](http://grafana.184.196.112.96.nip.io) | Prometheus/Grafana real-time cluster telemetry, compute, and pod health |
-| **⚙️ Jenkins CI/CD Console** | [http://184.196.112.96:8080](http://184.196.112.96:8080) | Continuous Integration & Automated Delivery Pipeline Controller |
-| **🪝 GitHub Webhook URL** | `http://184.196.112.96:8080/github-webhook/` | Target URL configured in GitHub Repository Settings for automated build triggers |
-| **📍 Dedicated Elastic IP** | `184.196.112.96` | Static AWS IPv4 Allocation (`us-east-1`) |
+| **🌐 Interactive Dashboard** | [http://app.13.206.193.63.nip.io](http://app.13.206.193.63.nip.io) | React Frontend with Multi-Metric Forecasting & On-Demand Telemetry Refresh |
+| **🔌 API Gateway** | [http://api.13.206.193.63.nip.io](http://api.13.206.193.63.nip.io) | Node.js Express Gateway (Auth, Telemetry, Health, Inference Trigger) |
+| **🩺 API Health Check** | [http://api.13.206.193.63.nip.io/health](http://api.13.206.193.63.nip.io/health) | Real-time service readiness & database connectivity verification |
+| **📊 Grafana Observability** | [http://grafana.13.206.193.63.nip.io](http://grafana.13.206.193.63.nip.io) | Prometheus/Grafana real-time cluster telemetry, compute, and pod health |
+| **⚙️ Jenkins CI/CD Console** | [http://13.206.193.63:8080](http://13.206.193.63:8080) | Continuous Integration & Automated Delivery Pipeline Controller |
+| **🪝 GitHub Webhook URL** | `http://13.206.193.63:8080/github-webhook/` | Target URL configured in GitHub Repository Settings for automated build triggers |
+| **📍 Dedicated Elastic IP** | `13.206.193.63` | Static AWS IPv4 Allocation (`ap-south-1`) |
 
 > 🔒 **Administrative & Operational Credentials Notice:**  
 > All administrative passwords, Jenkins credentials, and Grafana monitoring access tokens are strictly managed as protected secrets and are documented exclusively in [`DEPLOYMENT_AND_INFRASTRUCTURE_REPORT.md`](../DEPLOYMENT_AND_INFRASTRUCTURE_REPORT.md) (never committed to public repository documentation).
@@ -185,13 +185,13 @@ cp terraform.tfvars.example terraform.tfvars
 ```
 Update `terraform.tfvars`:
 ```hcl
-region          = "us-east-1"
-key_name        = "your-ec2-key-name"
-admin_cidrs     = ["<your-ip-address>/32"]
+region          = "ap-south-1"
+key_name        = "urban-eipp-key"
+admin_cidrs     = ["0.0.0.0/0"]
 bucket_names    = {
-  raw       = "your-raw-bucket-name"
-  processed = "your-processed-bucket-name"
-  models    = "your-models-bucket-name"
+  raw       = "urban-eipp-407676141907-raw"
+  processed = "urban-eipp-407676141907-processed"
+  models    = "urban-eipp-407676141907-models"
 }
 docker_registry = "docker.io/akash123cyber"
 docker_tag      = "latest"
@@ -235,7 +235,7 @@ sequenceDiagram
 
 ### Setting Up the GitHub Webhook
 1. Go to your GitHub Repository $\to$ **Settings** $\to$ **Webhooks** $\to$ **Add webhook**.
-2. **Payload URL**: `http://184.196.112.96:8080/github-webhook/`
+2. **Payload URL**: `http://13.206.193.63:8080/github-webhook/`
 3. **Content type**: `application/json`
 4. **Events**: Select **Just the push event**.
 5. Save the webhook. Every subsequent `git push` to `main` will automatically trigger parallel validation, container compilation, and rolling cluster deployment!
@@ -246,7 +246,7 @@ sequenceDiagram
 
 The production cluster includes a fully integrated, cost-optimized Prometheus Operator and Grafana monitoring stack deployed via the `kube-prometheus-stack` Helm chart:
 
-- **Live Grafana Console:** [http://grafana.184.196.112.96.nip.io](http://grafana.184.196.112.96.nip.io)
+- **Live Grafana Console:** [http://grafana.13.206.193.63.nip.io](http://grafana.13.206.193.63.nip.io)
 - **Active Scrape Targets (13):** Continuous metrics collection across Node Exporter, cAdvisor, Kube-State-Metrics, K3s control plane, and microservice `/metrics` endpoints.
 - **Pre-Configured Dashboards:**
   - *Cluster & Node Compute Resources* (CPU, RAM, Disk I/O, Network Throughput).

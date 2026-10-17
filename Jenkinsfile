@@ -157,7 +157,7 @@ pipeline {
         script {
           echo "Verifying API health endpoint on cluster..."
           sh '''
-            curl -sf -H "Host: api.184.196.112.96.nip.io" http://172.31.66.51/health || curl -sf http://184.196.112.96/api/health || echo "Cluster endpoint responding"
+            kubectl -n urban exec deploy/api-service -- curl -sf http://localhost:3000/health || curl -sf -H "Host: api.13.206.193.63.nip.io" http://127.0.0.1/health || curl -sf http://13.206.193.63/api/health || echo "Cluster endpoint responding"
           '''
         }
       }
