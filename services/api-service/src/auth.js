@@ -36,6 +36,39 @@ async function login(req, res) {
   res.json({ token, user: { email: user.email, role: user.role } });
 }
 
+async function register(req, res) {
+  const { email, password } = req.body || {};
+  if (!email || !password) {
+    return res.status(400).json({ error: 'email and password required' });
+  }
+  const cleanEmail = String(email).trim().toLowerCase();
+  if (!cleanEmail.includes('@') || cleanEmail.length < 5) {
+    return res.status(400).json({ error: 'valid email required' });
+  }
+  if (String(password).length < 6) {
+    return res.status(400).json({ error: 'password must be at least 6 characters' });
+  }
+
+  const existing = await db.query('SELECT id FROM users WHERE email = $1', [cleanEmail]);
+  if (existing.rows && existing.rows.length > 0) {
+    return res.status(409).json({ error: 'user with this email already exists' });
+  }
+
+  const hash = await bcrypt.hash(password, 10);
+  const { rows } = await db.query(
+    `INSERT INTO users (email, password_hash, role) VALUES ($1, $2, 'user')
+     RETURNING id, email, role, created_at`,
+    [cleanEmail, hash]
+  );
+  const newUser = rows[0];
+  const token = jwt.sign(
+    { sub: newUser.id, email: newUser.email, role: newUser.role },
+    secret(),
+    { expiresIn: '8h' }
+  );
+  res.status(201).json({ token, user: { email: newUser.email, role: newUser.role } });
+}
+
 function requireAuth(req, res, next) {
   const h = req.headers.authorization || '';
   const token = h.startsWith('Bearer ') ? h.slice(7) : null;
@@ -56,4 +89,4 @@ const requireRole = (role) => (req, res, next) => {
   }
 };
 
-module.exports = { seedAdmin, login, requireAuth, requireRole };
+module.exports = { seedAdmin, login, register, requireAuth, requireRole };

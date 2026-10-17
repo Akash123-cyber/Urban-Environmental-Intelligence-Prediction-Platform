@@ -4,7 +4,7 @@ const cors = require('cors');
 const morgan = require('morgan');
 const db = require('./db');
 const { client, middleware: metrics } = require('./metrics');
-const { login, requireAuth } = require('./auth');
+const { login, register, requireAuth } = require('./auth');
 const routes = require('./routes');
 
 const app = express();
@@ -39,6 +39,7 @@ app.get('/metrics', async (_req, res) => {
 
 // Authentication Routes
 app.post('/api/auth/login', (req, res, next) => login(req, res).catch(next));
+app.post(['/api/auth/register', '/api/auth/signup'], (req, res, next) => register(req, res).catch(next));
 
 // Public Model Registry & Hot-Reload Webhooks (for Colab / Offline ML triggers)
 const ANALYTICS_URL = process.env.ANALYTICS_URL || 'http://analytics-service:5001';

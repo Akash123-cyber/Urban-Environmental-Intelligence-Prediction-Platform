@@ -35,6 +35,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     }),
+  register: (email, password) =>
+    request('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }),
   cities: () => request('/cities'),
   current: (id) => request(`/cities/${id}/current`),
   history: (id, hours = 48) => request(`/cities/${id}/history?hours=${hours}`),
