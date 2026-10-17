@@ -171,7 +171,7 @@ pipeline {
 
   post {
     always {
-      cleanWs deleteDirs: true, notFailBuild: true
+      deleteDir()
     }
     success {
       echo "UrbanEIIP CI/CD Pipeline succeeded for commit ${env.SHORT_SHA}!"
