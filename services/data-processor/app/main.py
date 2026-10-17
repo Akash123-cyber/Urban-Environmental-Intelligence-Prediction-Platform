@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import pandas as pd
+from sqlalchemy import text
 from fastapi import FastAPI, HTTPException, Response, Request
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, Counter, Histogram, Gauge
 
@@ -48,7 +49,7 @@ def health():
 def ready():
     try:
         with get_engine().connect() as conn:
-            conn.execute(pd.io.sql.text("SELECT 1;"))
+            conn.execute(text("SELECT 1;"))
         return {"status": "ready", "database": "connected"}
     except Exception as exc:
         logger.error("Readiness check failed: %s", exc)

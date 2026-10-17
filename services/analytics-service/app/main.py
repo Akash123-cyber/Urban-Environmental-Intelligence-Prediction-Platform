@@ -80,7 +80,7 @@ def _city(city_slug: str) -> dict:
 
 
 @app.get("/forecast/{city_slug}")
-def get_forecast(city_slug: str, hours: int = Query(24, ge=1, le=72)):
+def get_forecast(city_slug: str, hours: int = Query(24, ge=1, le=72), force: bool = Query(False)):
     city = _city(city_slug)
     try:
         raw = repo.load_series(city["id"])
@@ -92,7 +92,7 @@ def get_forecast(city_slug: str, hours: int = Query(24, ge=1, le=72)):
             raise HTTPException(status_code=409, detail="forecast not available yet: no PM observations")
         newest_observation = target_history.index.max()
         previous_forecast = repo.latest_prediction_based_on(city["id"])
-        if previous_forecast is not None and previous_forecast >= newest_observation.to_pydatetime():
+        if not force and previous_forecast is not None and previous_forecast >= newest_observation.to_pydatetime():
             return {"city": city_slug, "based_on": previous_forecast.isoformat(), "forecast": repo.get_predictions(city["id"], hours)}
         forecasts = {}
         versions = []

@@ -48,16 +48,22 @@ services:
     depends_on:
       minio:
         condition: service_healthy
+    volumes:
+      - ./data/models:/data/models:ro
     entrypoint: >
       /bin/sh -c "
       sleep 2;
-      mc alias set local http://minio:9000 ${AWS_ACCESS_KEY_ID:-minioadmin} ${AWS_SECRET_ACCESS_KEY:-minioadmin};
-      mc mb -p local/${S3_RAW_BUCKET:-urban-raw} local/${S3_PROCESSED_BUCKET:-urban-processed} local/${S3_MODEL_BUCKET:-urban-models};
+      mc alias set local http://minio:9000 $${AWS_ACCESS_KEY_ID:-minioadmin} $${AWS_SECRET_ACCESS_KEY:-minioadmin};
+      mc mb -p local/$${S3_RAW_BUCKET:-urban-raw} local/$${S3_PROCESSED_BUCKET:-urban-processed} local/$${S3_MODEL_BUCKET:-urban-models};
+      if [ -d /data/models ] && [ \"$$(ls -A /data/models 2>/dev/null)\" ]; then
+        mc cp --recursive /data/models/ local/$${S3_MODEL_BUCKET:-urban-models}/models/latest/;
+      fi;
       exit 0;
       "
     restart: "no"
 
   data-processor:
+    image: urbaneipp/data-processor:latest
     build:
       context: ./services/data-processor
     environment:
@@ -70,6 +76,7 @@ services:
     ports: ["5000:5000"]
 
   data-collector:
+    image: urbaneipp/data-collector:latest
     build:
       context: ./services/data-collector
     environment:
@@ -87,6 +94,7 @@ services:
     ports: ["8080:8080"]
 
   analytics-service:
+    image: urbaneipp/analytics-service:latest
     build:
       context: ./services/analytics-service
     environment:
@@ -105,11 +113,13 @@ services:
     ports: ["5001:5001"]
 
   api-service:
+    image: urbaneipp/api-service:latest
     build:
       context: ./services/api-service
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-urban}:${POSTGRES_PASSWORD:-urban_dev_password}@postgres:5432/${POSTGRES_DB:-urban}
       ANALYTICS_URL: http://analytics-service:5001
+      COLLECTOR_URL: http://data-collector:8080
       JWT_SECRET: ${JWT_SECRET:-super_secret_jwt_key_at_least_32_characters_long}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-AdminPassword123!}
@@ -119,9 +129,12 @@ services:
         condition: service_healthy
       analytics-service:
         condition: service_started
+      data-collector:
+        condition: service_started
     ports: ["3000:3000"]
 
   web-dashboard:
+    image: urbaneipp/web-dashboard:latest
     build:
       context: ./services/web-dashboard
     depends_on:

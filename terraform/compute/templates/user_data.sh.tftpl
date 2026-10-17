@@ -4,7 +4,9 @@ exec > >(tee /var/log/user-data.log) 2>&1
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-apt-get install -y curl jq unzip ca-certificates
+apt-get install -y curl jq unzip ca-certificates docker.io
+systemctl enable --now docker
+usermod -aG docker ubuntu
 
 # 1. Configure 2 GB Swap (essential guard against OOM on 4 GB node)
 if [ ! -f /swapfile ]; then
@@ -480,5 +482,14 @@ spec:
                 name: web-dashboard
                 port: { number: 80 }
 EOF
+
+# 6. Bootstrap Jenkins CI/CD Controller on port 8080
+mkdir -p /var/jenkins_home
+chown -R 1000:1000 /var/jenkins_home
+docker run -d --name jenkins --restart unless-stopped \
+  -p 8080:8080 -p 50000:50000 \
+  -v /var/jenkins_home:/var/jenkins_home \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  jenkins/jenkins:lts-jdk21
 
 echo "bootstrap complete" > /var/log/bootstrap-done

@@ -1,0 +1,11 @@
+,city,slug,target,gate_passed,model_mae,persist_mae,seasonal24_mae,skill_vs_persist,skill_vs_seasonal24,rows
+delhi_pm25,Delhi,delhi,pm25,True,3.46,4.62,18.61,0.2506,0.8142,4320
+delhi_pm10,Delhi,delhi,pm10,True,12.23,14.13,59.18,0.1341,0.7933,4320
+mumbai_pm25,Mumbai,mumbai,pm25,True,2.26,2.62,10.29,0.1366,0.7805,4320
+mumbai_pm10,Mumbai,mumbai,pm10,True,2.49,3.12,13.9,0.2013,0.821,4320
+kolkata_pm25,Kolkata,kolkata,pm25,True,3.73,4.47,17.62,0.1659,0.7883,4320
+kolkata_pm10,Kolkata,kolkata,pm10,True,4.13,4.7,19.22,0.1213,0.7853,4320
+chennai_pm25,Chennai,chennai,pm25,True,1.09,1.23,7.02,0.1166,0.845,4320
+chennai_pm10,Chennai,chennai,pm10,True,1.44,1.54,9.35,0.0624,0.8456,4320
+bengaluru_pm25,Bengaluru,bengaluru,pm25,True,1.73,2.19,7.57,0.2084,0.7713,4320
+bengaluru_pm10,Bengaluru,bengaluru,pm10,True,2.23,2.54,10.55,0.1235,0.7886,4320

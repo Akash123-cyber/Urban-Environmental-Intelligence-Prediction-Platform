@@ -25,6 +25,42 @@ const getAqiDetails = (v) => {
   return { label: 'Hazardous', color: '#b91c1c', bg: 'rgba(185, 28, 28, 0.15)' };
 };
 
+const PM25_BREAKPOINTS = [
+  [0, 30, 0, 50],
+  [31, 60, 51, 100],
+  [61, 90, 101, 200],
+  [91, 120, 201, 300],
+  [121, 250, 301, 400],
+  [251, 500, 401, 500],
+];
+
+const PM10_BREAKPOINTS = [
+  [0, 50, 0, 50],
+  [51, 100, 51, 100],
+  [101, 250, 101, 200],
+  [251, 350, 201, 300],
+  [351, 430, 301, 400],
+  [431, 600, 401, 500],
+];
+
+function calcSubIndex(val, breakpoints) {
+  if (val == null || isNaN(val) || val < 0) return null;
+  for (const [bpLow, bpHigh, iLow, iHigh] of breakpoints) {
+    if (val >= bpLow && val <= bpHigh) {
+      return Math.round(((iHigh - iLow) / (bpHigh - bpLow)) * (val - bpLow) + iLow);
+    }
+  }
+  const last = breakpoints[breakpoints.length - 1];
+  return Math.min(500, Math.round(((500 - last[2]) / (last[1] - last[0])) * (val - last[0]) + last[2]));
+}
+
+function calcCompositeAqi(pm25, pm10) {
+  const i25 = calcSubIndex(pm25, PM25_BREAKPOINTS);
+  const i10 = calcSubIndex(pm10, PM10_BREAKPOINTS);
+  if (i25 == null && i10 == null) return null;
+  return Math.max(i25 || 0, i10 || 0);
+}
+
 const formatTime = (iso) => {
   if (!iso) return '';
   const d = new Date(iso);
@@ -37,11 +73,13 @@ export default function App() {
   const [authed, setAuthed] = useState(!!getToken());
   const [cities, setCities] = useState([]);
   const [cityId, setCityId] = useState(null);
+  const [selectedMetric, setSelectedMetric] = useState('pm25');
   const [current, setCurrent] = useState(null);
   const [history, setHistory] = useState([]);
   const [forecast, setForecast] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -82,6 +120,21 @@ export default function App() {
     }
   }, [cityId]);
 
+  const handleForceRefresh = async () => {
+    if (!cityId || refreshing) return;
+    setRefreshing(true);
+    try {
+      // 1. Force data-collector to poll live sensor data and force analytics ML inference
+      await api.refreshCity(cityId).catch((err) => console.warn('Force refresh notice:', err));
+      // 2. Fetch the newly updated observation readings, 48h history, and new 24h predictions
+      await loadData();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   useEffect(() => {
     loadData();
     const interval = setInterval(loadData, 60000);
@@ -110,27 +163,83 @@ export default function App() {
     return grouped;
   }, [cities]);
 
-  // Chart configuration: 48h Actuals + Boundary + 24h Forecast
+  // Metric configuration for titles, colors, and units
+  const metricMeta = useMemo(() => {
+    switch (selectedMetric) {
+      case 'pm10':
+        return {
+          title: 'PM10 Telemetry & 24-Hour Predictive Forecast',
+          subtitle: 'Solid line = 48h verified actuals | Dashed line = 24h LightGBM predictive horizon',
+          actualLabel: 'Historical PM10 (Actual)',
+          forecastLabel: '24h ML Forecast (Predicted)',
+          unit: 'µg/m³',
+          unitTitle: 'Concentration (µg/m³)',
+          actualColor: '#06b6d4',
+          actualBg: 'rgba(6, 182, 212, 0.1)',
+          forecastColor: '#f59e0b',
+        };
+      case 'aqi':
+        return {
+          title: 'Air Quality Index (AQI) & 24-Hour Predictive Trajectory',
+          subtitle: 'Solid line = 48h verified AQI | Dashed line = 24h CPCB composite predicted trajectory',
+          actualLabel: 'Historical AQI (Actual)',
+          forecastLabel: '24h Composite Forecast (Predicted)',
+          unit: 'AQI',
+          unitTitle: 'Index Value (0–500)',
+          actualColor: '#a855f7',
+          actualBg: 'rgba(168, 85, 247, 0.1)',
+          forecastColor: '#ec4899',
+        };
+      default:
+        return {
+          title: 'PM2.5 Telemetry & 24-Hour Predictive Forecast',
+          subtitle: 'Solid line = 48h verified actuals | Dashed line = 24h LightGBM predictive horizon',
+          actualLabel: 'Historical PM2.5 (Actual)',
+          forecastLabel: '24h ML Forecast (Predicted)',
+          unit: 'µg/m³',
+          unitTitle: 'Concentration (µg/m³)',
+          actualColor: '#3b82f6',
+          actualBg: 'rgba(59, 130, 246, 0.1)',
+          forecastColor: '#f97316',
+        };
+    }
+  }, [selectedMetric]);
+
+  // Chart configuration: 48h Actuals + Seamless Anchor + 24h Forecast
   const chartData = useMemo(() => {
     const histLabels = history.map((r) => formatTime(r.observed_at));
     const fcLabels = forecast.map((r) => formatTime(r.target_time));
     const allLabels = [...histLabels, ...fcLabels];
 
-    const histPM25 = history.map((r) => r.pm25);
-    const histAnomalies = history.map((r) => (r.is_anomaly ? r.pm25 : null));
+    let histValues, fcValues, anomalies;
 
-    const fcValues = forecast.map((r) => r.predicted_pm25);
-    const padHist = Array(history.length).fill(null);
+    if (selectedMetric === 'pm10') {
+      histValues = history.map((r) => r.pm10);
+      fcValues = forecast.map((r) => r.predicted_pm10);
+      anomalies = history.map((r) => (r.is_anomaly ? r.pm10 : null));
+    } else if (selectedMetric === 'aqi') {
+      histValues = history.map((r) => r.aqi);
+      fcValues = forecast.map((r) => calcCompositeAqi(r.predicted_pm25, r.predicted_pm10));
+      anomalies = history.map((r) => (r.is_anomaly ? r.aqi : null));
+    } else {
+      histValues = history.map((r) => r.pm25);
+      fcValues = forecast.map((r) => r.predicted_pm25);
+      anomalies = history.map((r) => (r.is_anomaly ? r.pm25 : null));
+    }
+
+    const lastHistVal = histValues.length > 0 ? histValues[histValues.length - 1] : null;
+    const padHist = Array(Math.max(0, history.length - 1)).fill(null);
+    const forecastWithAnchor = lastHistVal != null ? [lastHistVal, ...fcValues] : fcValues;
     const padFc = Array(forecast.length).fill(null);
 
     return {
       labels: allLabels,
       datasets: [
         {
-          label: 'Historical PM2.5 (Actual)',
-          data: [...histPM25, ...padFc],
-          borderColor: '#3b82f6',
-          backgroundColor: 'rgba(59, 130, 246, 0.1)',
+          label: metricMeta.actualLabel,
+          data: [...histValues, ...padFc],
+          borderColor: metricMeta.actualColor,
+          backgroundColor: metricMeta.actualBg,
           borderWidth: 2.5,
           fill: true,
           pointRadius: 2,
@@ -138,9 +247,9 @@ export default function App() {
           tension: 0.2,
         },
         {
-          label: '24h ML Forecast (Predicted)',
-          data: [...padHist, ...fcValues],
-          borderColor: '#f97316',
+          label: metricMeta.forecastLabel,
+          data: [...padHist, ...forecastWithAnchor],
+          borderColor: metricMeta.forecastColor,
           borderWidth: 2.5,
           borderDash: [6, 4],
           fill: false,
@@ -150,7 +259,7 @@ export default function App() {
         },
         {
           label: 'Sensor Anomalies',
-          data: [...histAnomalies, ...padFc],
+          data: [...anomalies, ...padFc],
           showLine: false,
           pointRadius: 6,
           pointHoverRadius: 8,
@@ -160,7 +269,7 @@ export default function App() {
         },
       ],
     };
-  }, [history, forecast]);
+  }, [history, forecast, selectedMetric, metricMeta]);
 
   if (!authed) {
     return <Login onLogin={() => setAuthed(true)} />;
@@ -219,8 +328,8 @@ export default function App() {
               Last observation: {current?.observed_at ? formatTime(current.observed_at) : 'Awaiting data...'}
             </p>
           </div>
-          <button onClick={loadData} disabled={loading} className="btn-refresh">
-            {loading ? 'Refreshing...' : '🔄 Refresh'}
+          <button onClick={handleForceRefresh} disabled={refreshing || loading} className="btn-refresh">
+            {refreshing ? '🔄 Syncing Sensors & ML...' : loading ? 'Refreshing...' : '🔄 Refresh'}
           </button>
         </div>
 
@@ -275,9 +384,34 @@ export default function App() {
         <div className="card panel-card">
           <div className="panel-header">
             <div>
-              <h2>PM2.5 Telemetry & 24-Hour Predictive Forecast</h2>
-              <p className="panel-sub">Solid line = 48h verified actuals | Dashed line = 24h LightGBM predictive horizon</p>
+              <h2>{metricMeta.title}</h2>
+              <p className="panel-sub">{metricMeta.subtitle}</p>
             </div>
+
+            <div className="metric-toggle-group">
+              <button
+                className={`metric-pill ${selectedMetric === 'pm25' ? 'active' : ''}`}
+                onClick={() => setSelectedMetric('pm25')}
+              >
+                <span className="pill-dot" style={{ background: '#3b82f6' }}></span>
+                PM2.5 (Fine Dust)
+              </button>
+              <button
+                className={`metric-pill ${selectedMetric === 'pm10' ? 'active' : ''}`}
+                onClick={() => setSelectedMetric('pm10')}
+              >
+                <span className="pill-dot" style={{ background: '#06b6d4' }}></span>
+                PM10 (Coarse Dust)
+              </button>
+              <button
+                className={`metric-pill ${selectedMetric === 'aqi' ? 'active' : ''}`}
+                onClick={() => setSelectedMetric('aqi')}
+              >
+                <span className="pill-dot" style={{ background: '#a855f7' }}></span>
+                Composite AQI (0–500)
+              </button>
+            </div>
+
             {forecast.length === 0 && (
               <span className="badge-warning">Model inference pending validation gate</span>
             )}
@@ -291,17 +425,32 @@ export default function App() {
                 maintainAspectRatio: false,
                 interaction: { mode: 'index', intersect: false },
                 plugins: {
-                  legend: { position: 'top', labels: { usePointStyle: true, boxWidth: 8 } },
+                  legend: {
+                    position: 'top',
+                    align: 'center',
+                    labels: {
+                      usePointStyle: true,
+                      pointStyle: 'circle',
+                      boxWidth: 22,
+                      boxHeight: 12,
+                      padding: 36,
+                      color: '#cbd5e1',
+                      font: {
+                        size: 13,
+                        weight: '500',
+                      },
+                    },
+                  },
                   tooltip: {
                     callbacks: {
-                      label: (ctx) => `${ctx.dataset.label}: ${ctx.raw != null ? num(ctx.raw) + ' µg/m³' : '—'}`,
+                      label: (ctx) => `${ctx.dataset.label}: ${ctx.raw != null ? num(ctx.raw) + ' ' + metricMeta.unit : '—'}`,
                     },
                   },
                 },
                 scales: {
                   x: { ticks: { maxTicksLimit: 12, color: '#9ca3af' }, grid: { color: 'rgba(243, 244, 246, 0.6)' } },
                   y: {
-                    title: { display: true, text: 'Concentration (µg/m³)' },
+                    title: { display: true, text: metricMeta.unitTitle },
                     ticks: { color: '#9ca3af' },
                     grid: { color: 'rgba(243, 244, 246, 0.6)' },
                   },

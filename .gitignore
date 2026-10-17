@@ -1,31 +1,70 @@
-# secrets & local config
+# ==============================================================================
+# Urban Environmental Intelligence & Prediction Platform - .gitignore
+# ==============================================================================
+
+# Offline Testing, Test Harnesses & Non-Repo Assets
+extras/
+extras/**
+
+# Secrets, Environment & Local Configuration
 .env
-*.tfvars
-!*.tfvars.example
+.env.local
+.env.*.local
 *.pem
+*.key
+*.crt
+*.pfx
 kubeconfig*
+!*.tfvars.example
+*.tfvars
 
-# python
+# Python / Data Science
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
 .venv/
+env/
+venv/
+ENV/
 .pytest_cache/
-models/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
 *.parquet
+data/raw/
+data/processed/
 
-# node
+# Node / Frontend
 node_modules/
 dist/
+dist-ssr/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
-# terraform
+# Terraform
 .terraform/
 *.tfstate
 *.tfstate.*
-tfplan
+*.tfplan
+*.tfplan.*
 .terraform.lock.hcl
+crash.log
 
-# misc
+# Kubernetes & Helm
+*.tgz
+*.tar.gz
+
+# IDE / OS Metadata
 .DS_Store
+Thumbs.db
 .idea/
 .vscode/
+*.swp
+*.swo
+*~
 *.log

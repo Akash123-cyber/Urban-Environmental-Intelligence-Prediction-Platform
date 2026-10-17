@@ -117,8 +117,21 @@ body {
   transition: background-color 0.2s;
 }
 
-.btn-refresh:hover {
+.btn-refresh:hover:not(:disabled) {
   background-color: var(--border-color);
+}
+
+.btn-refresh:disabled {
+  opacity: 0.75;
+  cursor: not-allowed;
+  border-color: rgba(59, 130, 246, 0.4);
+  color: #93c5fd;
+  animation: pulse-refresh 1.5s infinite ease-in-out;
+}
+
+@keyframes pulse-refresh {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
 }
 
 .content {
@@ -232,6 +245,50 @@ body {
   font-size: 0.8rem;
   font-weight: 500;
   border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.metric-toggle-group {
+  display: flex;
+  gap: 0.5rem;
+  background: rgba(15, 23, 42, 0.75);
+  padding: 0.25rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  align-self: center;
+}
+
+.metric-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.85rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.metric-pill:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.metric-pill.active {
+  color: #ffffff;
+  background: rgba(30, 41, 59, 0.95);
+  border-color: rgba(148, 163, 184, 0.35);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.pill-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
 }
 
 /* Alerts List */

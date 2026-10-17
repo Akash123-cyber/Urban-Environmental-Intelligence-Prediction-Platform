@@ -4,6 +4,7 @@ const { requireRole } = require('./auth');
 
 const router = express.Router();
 const ANALYTICS_URL = process.env.ANALYTICS_URL || 'http://analytics-service:5001';
+const COLLECTOR_URL = process.env.COLLECTOR_URL || 'http://data-collector:8080';
 
 const cityId = (req, res, next) => {
   const id = Number(req.params.id);
@@ -16,6 +17,45 @@ const cityId = (req, res, next) => {
 
 const clamp = (v, lo, hi, d) => Math.min(hi, Math.max(lo, Number.parseInt(v, 10) || d));
 const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next);
+
+router.post('/cities/:id/refresh', cityId, wrap(async (req, res) => {
+  const { rows: cityRows } = await db.query('SELECT id, slug, name FROM cities WHERE id = $1', [req.cityId]);
+  if (!cityRows[0]) return res.status(404).json({ error: 'city not found' });
+  const { slug } = cityRows[0];
+
+  let collectorResult = null;
+  let analyticsResult = null;
+
+  // 1. Force data collector to pull live sensor telemetry for this city and ingest into DB
+  try {
+    const colResp = await fetch(`${COLLECTOR_URL}/poll?city=${slug}&force=true&sync=true`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (colResp.ok) {
+      collectorResult = await colResp.json();
+    }
+  } catch (err) {
+    console.warn(`Collector force poll failed for ${slug}:`, err.message);
+  }
+
+  // 2. Force analytics service to run fresh ML inference based on newest telemetry
+  try {
+    const anaResp = await fetch(`${ANALYTICS_URL}/forecast/${slug}?hours=24&force=true`);
+    if (anaResp.ok) {
+      analyticsResult = await anaResp.json();
+    }
+  } catch (err) {
+    console.warn(`Analytics force forecast failed for ${slug}:`, err.message);
+  }
+
+  res.json({
+    ok: true,
+    city: slug,
+    collector: collectorResult,
+    forecastUpdated: !!analyticsResult,
+  });
+}));
 
 router.get('/cities', wrap(async (_req, res) => {
   const { rows } = await db.query(
@@ -55,26 +95,29 @@ router.get('/cities/:id/history', cityId, wrap(async (req, res) => {
 }));
 
 router.get('/cities/:id/forecast', cityId, wrap(async (req, res) => {
-  const { rows } = await db.query(
-    `SELECT target_time, predicted_pm25, predicted_pm10, model_version
-     FROM predictions
-     WHERE city_id = $1 AND target_time > now()
-     ORDER BY target_time`,
-    [req.cityId]
-  );
-  if (rows.length) return res.json(rows);
-
-  // If not cached in DB, resolve city slug and query analytics service directly
+  const force = req.query.force === 'true';
   const { rows: cityRows } = await db.query('SELECT id, slug FROM cities WHERE id = $1', [req.cityId]);
   if (!cityRows[0] || !cityRows[0].slug) {
     return res.status(404).json({ error: 'city not found' });
   }
   const slug = cityRows[0].slug;
 
+  if (!force) {
+    const { rows } = await db.query(
+      `SELECT target_time, predicted_pm25, predicted_pm10, model_version
+       FROM predictions
+       WHERE city_id = $1 AND target_time > now()
+       ORDER BY target_time`,
+      [req.cityId]
+    );
+    if (rows.length) return res.json(rows);
+  }
+
+  // If forced or not cached in DB, query analytics service directly
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20000);
-    const r = await fetch(`${ANALYTICS_URL}/forecast/${slug}?hours=24`, { signal: controller.signal });
+    const r = await fetch(`${ANALYTICS_URL}/forecast/${slug}?hours=24${force ? '&force=true' : ''}`, { signal: controller.signal });
     clearTimeout(timeout);
 
     if (!r.ok) {

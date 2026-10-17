@@ -10,6 +10,7 @@ data:
   S3_MODEL_BUCKET: "urban-eipp-dev-models"
   PROCESSOR_URL: "http://data-processor:5000"
   ANALYTICS_URL: "http://analytics-service:5001"
+  COLLECTOR_URL: "http://data-collector:8080"
   POLL_INTERVAL_SECONDS: "900"
   ANALYTICS_INTERVAL_SECONDS: "1800"
   LIVE_LOOKBACK_HOURS: "2"

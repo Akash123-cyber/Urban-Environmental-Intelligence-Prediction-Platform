@@ -1,108 +1,253 @@
-# Urban Environmental Intelligence & Prediction Platform (Urban EIPP)
+# 🌍 Urban Environmental Intelligence & Prediction Platform (UrbanEIIP)
 
-An enterprise-grade, cloud-native environmental intelligence and predictive analytics platform engineered for real-time air quality monitoring, atmospheric anomaly detection, and 24-hour pollutant forecasting.
+[![Build Status](https://img.shields.io/badge/CI%2FCD-Jenkins%20Automated-blue?logo=jenkins)](http://184.196.112.96:8080)
+[![AWS Cloud](https://img.shields.io/badge/AWS-EC2%20%7C%20S3%20%7C%20EIP-orange?logo=amazon-aws)](https://aws.amazon.com)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-K3s%20Cluster-326ce5?logo=kubernetes)](https://k3s.io)
+[![Machine Learning](https://img.shields.io/badge/ML-LightGBM%20Delta%20Residual-brightgreen?logo=scikit-learn)](https://lightgbm.readthedocs.io)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
 
-## 1. System Architecture
+## 🚀 Live Public Deployment
 
+The complete cloud-native infrastructure is actively provisioned and hosted on AWS with a dedicated Elastic IP:
+
+| Component | Endpoint | Description |
+| :--- | :--- | :--- |
+| **🌐 Interactive Dashboard** | [http://app.184.196.112.96.nip.io](http://app.184.196.112.96.nip.io) | React Frontend with Multi-Metric Forecasting & On-Demand Telemetry Refresh |
+| **🔌 API Gateway** | [http://api.184.196.112.96.nip.io](http://api.184.196.112.96.nip.io) | Node.js Express Gateway (Auth, Telemetry, Health, Inference Trigger) |
+| **🩺 API Health Check** | [http://api.184.196.112.96.nip.io/health](http://api.184.196.112.96.nip.io/health) | Real-time service readiness & database connectivity verification |
+| **⚙️ Jenkins CI/CD Console** | [http://184.196.112.96:8080](http://184.196.112.96:8080) | Continuous Integration & Automated Delivery Pipeline Controller |
+| **🪝 GitHub Webhook URL** | `http://184.196.112.96:8080/github-webhook/` | Target URL configured in GitHub Repository Settings for automated build triggers |
+| **📍 Dedicated Elastic IP** | `184.196.112.96` | Static AWS IPv4 Allocation (`us-east-1`) |
+
+---
+
+## 📖 Executive Summary
+
+**Urban Environmental Intelligence & Prediction Platform (UrbanEIIP)** is a production-grade, distributed IoT and environmental telemetry platform designed for continuous air quality monitoring, automated anomaly detection, and forward-looking meteorological forecasting.
+
+### Key Capabilities
+- **Real-Time Telemetry Ingestion**: Asynchronous multi-threaded ingestion from Central Pollution Control Board (CPCB), OpenAQ, and Open-Meteo across key Indian metropolitan areas.
+- **Delta-Residual Machine Learning**: Chronologically trained **LightGBM** models for PM2.5 and PM10 that predict delta movements against rolling baselines, eliminating static disparity.
+- **Regional Meteorological Fallback**: Dynamic regional matrix ensuring high-availability ML inference (e.g. Pune/Ahmedabad $\to$ Mumbai, Lucknow/Jaipur $\to$ Delhi).
+- **Interactive Multi-Metric Toggle**: Instant switching between `[ PM2.5 ]`, `[ PM10 ]`, and `[ Composite AQI ]` with official CPCB breakpoint interpolation.
+- **On-Demand Force Refresh**: User-triggered live collection, S3 synchronization, and re-inference directly from the dashboard.
+- **Ultra-Lean Resource Footprint**: Entire 5-service cluster runs inside ~650 MiB RAM on a single cost-optimized K3s node with 2 GB swap guard.
+
+---
+
+## 🏛️ System Architecture
+
+```mermaid
+flowchart TD
+  subgraph DataSources["External Environmental Telemetry"]
+    CPCB["CPCB / OpenAQ v3 API"]
+    METEO["Open-Meteo Historical & Forecast"]
+  end
+
+  subgraph IngestionAndProcessing["Ingestion & Data Pipeline"]
+    DC["data-collector<br/>(FastAPI / Python 3.12)"]
+    DP["data-processor<br/>(Python 3.12 / Pandas)"]
+    DB[("PostgreSQL 16<br/>Timescale Telemetry DB")]
+    S3_RAW[("AWS S3 Raw Archive")]
+    S3_PROC[("AWS S3 Processed Parquet")]
+  end
+
+  subgraph AnalyticsAndML["Machine Learning & Analytics"]
+    ANA["analytics-service<br/>(LightGBM / Scikit-Learn)"]
+    S3_MODELS[("AWS S3 Model Registry")]
+  end
+
+  subgraph PresentationGateway["Gateway & Presentation"]
+    API["api-service<br/>(Node.js 22 / Express)"]
+    UI["web-dashboard<br/>(React 18 / Vite / Tailwind)"]
+  end
+
+  CPCB -->|Polls Telemetry| DC
+  METEO -->|Fetches Meteorology| DC
+  DC -->|Raw Payloads| DP
+  DC -->|Raw JSON Objects| S3_RAW
+  DP -->|Validated Hourly Aggregates| DB
+  DP -->|Daily Snappy Parquet| S3_PROC
+  ANA -->|Delta Residual Inference| DB
+  S3_MODELS -->|Pre-trained Weights| ANA
+  DB -->|Queries State| API
+  ANA -->|Forecast Vectors| API
+  API -->|REST / JSON| UI
 ```
-                       +-----------------------------------+
-                       |    Google Colab Model Training    |
-                       |  (XGBoost, Chronological Splits)  |
-                       +-----------------+-----------------+
-                                         |
-                                   Uploads Models
-                                         |
-                                         v
-+-----------------------+     +--------------------+     +-----------------------+
-|  OpenAQ / Open-Meteo  | --> | S3 Model Registry  | <-- |   Analytics Service   |
-+-----------+-----------+     |  (Persistent Tier) |     | (Inference Only: 5001)|
-            |                 +--------------------+     +-----------+-----------+
-      Ingests Telemetry                                              |
-            |                                                        v
-+-----------v-----------+     +--------------------+     +-----------------------+
-|    Data Collector     | --> |   Data Processor   | --> |      API Gateway      |
-|     (Port: 8080)      |     |    (Port: 5000)    |     |  (Express.js: 3000)   |
-+-----------------------+     +----+----------+----+     +-----------+-----------+
-                                   |          |                      |
-                        Raw/Processed S3   PostgreSQL                v
-                           Data Lake      TimescaleDB    +-----------------------+
-                                                         |  Web React Dashboard  |
-                                                         |       (Port: 80)      |
-                                                         +-----------------------+
+
+---
+
+## 📂 Repository Structure
+
+```text
+Urban-Environmental-Intelligence-Prediction-Platform/
+├── Jenkinsfile                  # Declarative Jenkins CI/CD pipeline (SCM Webhook driven)
+├── README.md                    # Platform documentation, live URLs & architecture guide
+├── docker-compose.yml           # Single-command local developer environment
+├── .env.example                 # Standardized environment template
+├── .gitignore                   # Production gitignore rules (excludes secrets & extras)
+│
+├── services/                    # Microservices Source Code
+│   ├── data-collector/          # Periodic & On-Demand Telemetry Ingestion (Python/FastAPI)
+│   ├── data-processor/          # Telemetry cleaning, outlier filtering & hourly rollups
+│   ├── analytics-service/       # LightGBM inference, regional fallback & AQI scoring
+│   ├── api-service/             # Express.js REST gateway, JWT authentication & proxy
+│   └── web-dashboard/           # Modern React SPA with interactive charts & metric toggles
+│
+├── terraform/                   # Infrastructure as Code (AWS)
+│   ├── persistent/              # S3 Data Buckets (raw, processed, model registry)
+│   └── compute/                 # EC2 (Ubuntu 22.04 LTS), Dedicated Elastic IP, Security Groups, K3s
+│
+├── helm/                        # Kubernetes Helm Charts
+│   └── urban-platform/          # Parameterized microservices deployment & Ingress rules
+│
+├── k8s/                         # Raw Kubernetes Manifests (Fallback / Reference)
+│
+├── notebooks/                   # ML Training & Research Notebooks
+│   └── urban_training.ipynb     # 180-day bootstrap, cross-validation & model gating
+│
+├── scripts/                     # Platform Automation
+│   └── push_docker_images.sh    # Automated Docker Hub tagging and publishing
+│
+└── extras/                      # [GIT-IGNORED] Local Development & Test Artifacts
+    ├── README.md                # Guide to offline test harnesses
+    ├── scripts/                 # Reusable offline test scripts (e.g., seed_all_cities.py)
+    ├── testing/                 # API mocks and unit testing harnesses
+    └── scratch/                 # Intermediate test data & scratchpads
 ```
 
-### Microservices Summary
-1. **`data-collector`** (Python/FastAPI): Scheduled poller (900s interval) checking freshness via `GET /latest`, collecting real-time air quality & weather for due cities, and dispatching atomic batches.
-2. **`data-processor`** (Python/FastAPI): Normalizes observations, archives immutable raw JSON & processed Parquet to S3, and executes idempotent `COALESCE` upserts into PostgreSQL.
-3. **`analytics-service`** (Python/FastAPI): Production inference engine with lazy S3 model loading, in-memory positive/negative caching, and advisory-lock scheduled predictions. (Strictly inference-only: `/train` returns 403 Forbidden).
-4. **`api-service`** (Node.js/Express): JWT-authenticated REST gateway serving city telemetry, forecasts, and alert management.
-5. **`web-dashboard`** (React/Vite): Modern glassmorphic analytics dashboard rendering real-time KPI cards, interactive 48h actuals + 24h predictive horizon charts, and anomaly alerts.
+> **Note on `extras/`:** All local testing files, city seeders, and experimental test code are preserved inside `extras/`. This directory is strictly ignored by Git so that local testing can be repeated without cluttering the repository.
 
 ---
 
-## 2. Key Architectural Decisions
+## 🛠️ Build & Run Your Own UrbanEIIP Stack
 
-- **ML Training Outside Cluster**: Machine learning models are trained in Google Colab (XGBoost with chronological train/validation/test splits against persistence baselines) and synced directly to S3. Production pods do not train in-pod, preventing OOM crashes.
-- **Docker Images from Docker Hub**: Container images are built in CI/CD and pulled directly by Kubernetes / Docker Compose.
-- **Two-Tier Terraform Architecture**:
-  - `terraform/persistent/`: S3 buckets (`raw`, `processed`, `models`) with `prevent_destroy = true`. Never touched during compute maintenance.
-  - `terraform/compute/`: Single-click disposable compute tier (EC2, k3s, Ingress-Nginx, PostgreSQL, microservices). Cleanly destroyed with `terraform destroy` without losing any ML models or historical data.
+You can reproduce this entire architecture either locally using Docker Compose or on AWS using the provided Terraform configurations.
+
+### Option A: Local Deployment (Docker Compose)
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/Akash123-cyber/Urban-Environmental-Intelligence-Prediction-Platform.git
+   cd Urban-Environmental-Intelligence-Prediction-Platform
+   ```
+
+2. **Configure Environment:**
+   ```bash
+   cp .env.example .env
+   # Edit .env if you wish to adjust poll intervals or add an OpenAQ API key
+   ```
+
+3. **Launch Microservices:**
+   ```bash
+   docker compose up -d
+   ```
+
+4. **Access Local Endpoints:**
+   - **Web Dashboard:** [http://localhost:8080](http://localhost:8080)
+   - **API Gateway:** [http://localhost:3000](http://localhost:3000)
+   - **API Health:** [http://localhost:3000/health](http://localhost:3000/health)
 
 ---
 
-## 3. Local Development (Docker Compose)
+### Option B: Cloud Deployment on AWS (Terraform + K3s)
 
-### Prerequisites
-- Docker Engine & Docker Compose
-- Python 3.12+ (or virtual environment: `source ~/myEnv/bin/activate`)
-- Node.js 22 LTS
+#### 1. Prerequisites
+- [AWS CLI v2](https://aws.amazon.com/cli/) configured with valid administrator credentials.
+- [Terraform >= 1.5](https://www.terraform.io/downloads.html).
+- An existing or imported EC2 Key Pair (`~/.ssh/id_rsa.pub` or similar).
 
-### Starting the Platform
+#### 2. Provision Persistent Storage (S3 Buckets)
 ```bash
-# 1. Copy local configuration
-cp .env.example .env
-
-# 2. Build and launch all services
-docker compose up --build -d
-
-# 3. Check service health
-docker compose ps
-```
-
-### Accessing Endpoints
-- **Web Dashboard**: [http://localhost:80](http://localhost:80)
-- **API Health Check**: `curl http://localhost:3000/api/health`
-- **Data Processor Freshness**: `curl http://localhost:5000/latest`
-- **Data Collector Telemetry**: `curl http://localhost:8080/health`
-- **Analytics Health**: `curl http://localhost:5001/health`
-- **MinIO Object Console**: [http://localhost:9001](http://localhost:9001) (`minioadmin` / `minioadmin`)
-
----
-
-## 4. Single-Click AWS Cloud Deployment
-
-```bash
-# 1. Deploy Persistent S3 Data Lake & Model Registry (Run once)
 cd terraform/persistent
-terraform init && terraform apply
+terraform init
+terraform apply -auto-approve
+```
+*Outputs: `raw`, `processed`, and `models` S3 bucket names.*
 
-# 2. Deploy Disposable Compute Stack (Single-Click)
+#### 3. Upload Trained Model Artifacts
+Upload the included LightGBM model weights to the newly created S3 model registry bucket:
+```bash
+# From repository root:
+aws s3 sync data/models/ s3://<models-bucket-name>/
+```
+
+#### 4. Provision Compute Layer & Dedicated Elastic IP
+```bash
 cd ../compute
-cp terraform.tfvars.example terraform.tfvars # set admin_cidrs and bucket names
-terraform init && terraform apply
+cp terraform.tfvars.example terraform.tfvars
+```
+Update `terraform.tfvars`:
+```hcl
+region          = "us-east-1"
+key_name        = "your-ec2-key-name"
+admin_cidrs     = ["<your-ip-address>/32"]
+bucket_names    = {
+  raw       = "your-raw-bucket-name"
+  processed = "your-processed-bucket-name"
+  models    = "your-models-bucket-name"
+}
+docker_registry = "docker.io/akash123cyber"
+docker_tag      = "latest"
+```
 
-# Follow bootstrap logs via SSH
-$(terraform output -raw ssh_command)
-tail -f /var/log/user-data.log
+Apply compute infrastructure:
+```bash
+terraform init
+terraform apply -auto-approve
+```
+
+Terraform automatically provisions:
+1. **Ubuntu 22.04 LTS EC2 Instance** with 2 GB Swap protection.
+2. **Dedicated AWS Elastic IP** attached permanently to the node.
+3. **AWS Security Group** with inbound access for HTTP (80), HTTPS (443), and Jenkins (8080).
+4. **K3s Single-Node Kubernetes Cluster** with Ingress-Nginx controller.
+5. **Jenkins CI/CD Server** running directly on port 8080.
+
+---
+
+## 🔄 Automated CI/CD with Jenkins & GitHub Webhooks
+
+The platform features automated SCM-triggered CI/CD:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor Developer
+  participant GitHub
+  participant Jenkins as Jenkins CI (:8080)
+  participant DockerHub as Docker Hub Registry
+  participant K3s as AWS K3s Cluster
+
+  Developer->>GitHub: git push origin main
+  GitHub->>Jenkins: POST /github-webhook/
+  Jenkins->>Jenkins: Parallel Pytest, Jest, Lint & Build
+  Jenkins->>DockerHub: Build & Push SHA-tagged Docker Images
+  Jenkins->>K3s: Rolling update deployments via kubectl / Helm
+  Jenkins->>K3s: Smoke test GET /api/health
+```
+
+### Setting Up the GitHub Webhook
+1. Go to your GitHub Repository $\to$ **Settings** $\to$ **Webhooks** $\to$ **Add webhook**.
+2. **Payload URL**: `http://184.196.112.96:8080/github-webhook/`
+3. **Content type**: `application/json`
+4. **Events**: Select **Just the push event**.
+5. Save the webhook. Every subsequent `git push` to `main` will automatically trigger parallel validation, container compilation, and rolling cluster deployment!
+
+---
+
+## 🧪 Local Testing & Seeding Harnesses
+
+To seed telemetry or test without calling live CPCB endpoints repeatedly, use the scripts preserved in `extras/`:
+
+```bash
+# Seed telemetry across all target cities using historical Open-Meteo & OpenAQ data:
+python extras/scripts/seed_all_cities.py
 ```
 
 ---
 
-## 5. Teardown
-```bash
-# Cleanly destroy compute while preserving all models and data:
-cd terraform/compute
-terraform destroy
-```
+## 📜 License
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.

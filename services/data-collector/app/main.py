@@ -22,35 +22,38 @@ logger = logging.getLogger("collector.main")
 poller_task = None
 
 
-async def run_collection_cycle():
+async def run_collection_cycle(target_city_slug: str | None = None, force: bool = False):
     with COLLECTOR_CYCLE_DURATION_SECONDS.time():
         cycle_id = f"cycle_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
-        logger.info("Starting collection cycle: %s", cycle_id)
+        logger.info("Starting collection cycle: %s (target=%s, force=%s)", cycle_id, target_city_slug, force)
 
-        cities = load_cities()
-        if not cities:
+        all_cities = load_cities()
+        if not all_cities:
             logger.warning("No cities loaded. Skipping cycle.")
-            return
+            return {"status": "skipped", "reason": "no cities"}
+
+        cities = [c for c in all_cities if c["slug"] == target_city_slug] if target_city_slug else all_cities
 
         async with httpx.AsyncClient(timeout=30.0) as client:
-            # 1. Fetch current freshness from processor
+            # 1. Fetch current freshness from processor (only if not forcing)
             latest_map = {}
-            try:
-                resp = await client.get(f"{settings.PROCESSOR_URL}/latest")
-                if resp.status_code == 200:
-                    latest_map = resp.json()
-                else:
-                    logger.warning("Processor /latest returned HTTP %d", resp.status_code)
-            except Exception as exc:
-                logger.warning("Could not reach processor at %s/latest: %s", settings.PROCESSOR_URL, exc)
+            if not force:
+                try:
+                    resp = await client.get(f"{settings.PROCESSOR_URL}/latest")
+                    if resp.status_code == 200:
+                        latest_map = resp.json()
+                    else:
+                        logger.warning("Processor /latest returned HTTP %d", resp.status_code)
+                except Exception as exc:
+                    logger.warning("Could not reach processor at %s/latest: %s", settings.PROCESSOR_URL, exc)
 
             # 2. Plan due cities
-            due_cities = plan_cycle(cities, latest_map, settings.LIVE_LOOKBACK_HOURS)
+            due_cities = cities if force else plan_cycle(cities, latest_map, settings.LIVE_LOOKBACK_HOURS, force=force)
             logger.info("Due cities for fetch: %d / %d", len(due_cities), len(cities))
 
             if not due_cities:
                 logger.info("All cities are up to date. Cycle %s is idle.", cycle_id)
-                return
+                return {"status": "idle", "cycle_id": cycle_id}
 
             # 3. Collect observations for due cities
             batch_items = []
@@ -82,11 +85,15 @@ async def run_collection_cycle():
                     timeout=60.0,
                 )
                 if ingest_resp.status_code in (200, 201):
-                    logger.info("Cycle %s successfully ingested by processor: %s", cycle_id, ingest_resp.json())
+                    res_data = ingest_resp.json()
+                    logger.info("Cycle %s successfully ingested by processor: %s", cycle_id, res_data)
+                    return {"status": "success", "cycle_id": cycle_id, "ingested": res_data}
                 else:
                     logger.error("Processor /ingest returned status %d: %s", ingest_resp.status_code, ingest_resp.text)
+                    return {"status": "error", "error": ingest_resp.text}
             except Exception as exc:
                 logger.error("Failed sending batch to processor: %s", exc)
+                return {"status": "error", "error": str(exc)}
 
 
 async def poll_scheduler():
@@ -131,6 +138,10 @@ def metrics():
 
 
 @app.post("/poll")
-async def trigger_poll(background_tasks: BackgroundTasks):
-    background_tasks.add_task(run_collection_cycle)
-    return {"message": "Collection cycle scheduled"}
+async def trigger_poll(city: str | None = None, force: bool = False, sync: bool = True):
+    if sync:
+        res = await run_collection_cycle(target_city_slug=city, force=force)
+        return res
+    else:
+        asyncio.create_task(run_collection_cycle(target_city_slug=city, force=force))
+        return {"message": "Collection cycle scheduled"}

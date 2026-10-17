@@ -88,23 +88,47 @@ class S3ModelRegistry:
             if entry:
                 del self._cache[cache_key]
 
+        REGIONAL_FALLBACK = {
+            "ahmedabad": "mumbai",
+            "pune": "mumbai",
+            "jaipur": "delhi",
+            "lucknow": "delhi",
+            "hyderabad": "bengaluru",
+        }
+
         import io
+        bundle = None
+        # Try direct city model first
         try:
             response = self._s3.get_object(Bucket=self.bucket, Key=self._key(city_slug, target))
             payload = response["Body"].read()
             bundle = joblib.load(io.BytesIO(payload))
-            if not isinstance(bundle, dict) or "model" not in bundle or "version" not in bundle:
-                raise ValueError("model bundle must be a dict containing model and version")
-            if bundle.get("target", target) != target:
-                raise ValueError("model bundle target does not match requested target")
         except Exception as exc:
-            # Cache a missing key briefly, but do not disguise permission/network errors as a permanent absence.
             code = getattr(exc, "response", {}).get("Error", {}).get("Code", "")
-            if code in {"NoSuchKey", "404", "NotFound"}:
+            if code in {"NoSuchKey", "404", "NotFound"} and city_slug in REGIONAL_FALLBACK:
+                fallback_slug = REGIONAL_FALLBACK[city_slug]
+                try:
+                    response = self._s3.get_object(Bucket=self.bucket, Key=self._key(fallback_slug, target))
+                    payload = response["Body"].read()
+                    bundle = joblib.load(io.BytesIO(payload))
+                    if isinstance(bundle, dict):
+                        bundle["version"] = f"lightgbm_{fallback_slug}_regional_v1.0.0"
+                except Exception as fb_exc:
+                    fb_code = getattr(fb_exc, "response", {}).get("Error", {}).get("Code", "")
+                    if fb_code in {"NoSuchKey", "404", "NotFound"}:
+                        with self._lock:
+                            self._put(cache_key, None, self.negative_ttl_seconds)
+                        raise ModelUnavailable(f"no accepted model for {city_slug}/{target}") from fb_exc
+                    raise ModelUnavailable(f"fallback model read failed for {city_slug}: {fb_exc}") from fb_exc
+            elif code in {"NoSuchKey", "404", "NotFound"}:
                 with self._lock:
                     self._put(cache_key, None, self.negative_ttl_seconds)
                 raise ModelUnavailable(f"no accepted model for {city_slug}/{target}") from exc
-            raise ModelUnavailable(f"model registry read failed for {city_slug}/{target}: {exc}") from exc
+            else:
+                raise ModelUnavailable(f"model registry read failed for {city_slug}/{target}: {exc}") from exc
+
+        if not isinstance(bundle, dict) or "model" not in bundle or "version" not in bundle:
+            raise ValueError("model bundle must be a dict containing model and version")
 
         with self._lock:
             self._put(cache_key, bundle, self.cache_ttl_seconds)

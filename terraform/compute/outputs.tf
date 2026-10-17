@@ -28,6 +28,16 @@ output "api_health_url" {
   value       = "http://api.${aws_eip.node.public_ip}.nip.io/health"
 }
 
+output "jenkins_url" {
+  description = "Public URL for Jenkins Web Console"
+  value       = "http://${aws_eip.node.public_ip}:8080"
+}
+
+output "github_webhook_url" {
+  description = "Target URL for GitHub Webhooks to trigger Jenkins automated CI/CD"
+  value       = "http://${aws_eip.node.public_ip}:8080/github-webhook/"
+}
+
 output "ssh_command" {
   description = "Convenience SSH command to connect to the node"
   value       = "ssh -i ~/.ssh/${var.key_name}.pem ubuntu@${aws_eip.node.public_ip}"

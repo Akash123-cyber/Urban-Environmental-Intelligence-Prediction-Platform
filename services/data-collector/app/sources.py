@@ -26,11 +26,16 @@ def plan_cycle(
     latest_timestamps: dict[str, dict[str, Any]],
     live_lookback_hours: int = 2,
     now: datetime = None,
+    force: bool = False,
 ) -> list[dict]:
     """
     Evaluates each city against the processor's stored freshness.
     Returns only cities that need fresh observation data.
     """
+    if force:
+        COLLECTOR_DUE_CITIES_COUNT.set(len(cities))
+        return list(cities)
+
     if now is None:
         now = datetime.now(timezone.utc)
 
@@ -51,8 +56,8 @@ def plan_cycle(
             try:
                 air_latest = datetime.fromisoformat(air_latest_str.replace("Z", "+00:00"))
                 wx_latest = datetime.fromisoformat(wx_latest_str.replace("Z", "+00:00"))
-                # If latest observation is older than 1 hour ago, fetch
-                if air_latest < latest_expected - timedelta(hours=1) or wx_latest < latest_expected - timedelta(hours=1):
+                # If latest observation is behind the current completed hour, fetch
+                if air_latest < latest_expected or wx_latest < latest_expected:
                     needs_fetch = True
             except Exception:
                 needs_fetch = True

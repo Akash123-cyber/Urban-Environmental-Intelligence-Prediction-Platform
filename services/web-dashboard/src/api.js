@@ -43,4 +43,5 @@ export const api = {
   alerts: () => request('/alerts'),
   resolveAlert: (id) => request(`/alerts/${id}/resolve`, { method: 'PATCH' }),
   systemMetrics: () => request('/admin/system'),
+  refreshCity: (id) => request(`/cities/${id}/refresh`, { method: 'POST' }),
 };
