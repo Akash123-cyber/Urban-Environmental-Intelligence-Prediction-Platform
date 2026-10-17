@@ -34,8 +34,9 @@ pipeline {
         checkout scm
         script {
           env.SHORT_SHA = sh(returnStdout: true, script: 'git rev-parse --short=8 HEAD').trim()
+          env.TARGET_BRANCH = sh(returnStdout: true, script: 'git rev-parse --abbrev-ref HEAD || echo "main"').trim()
           currentBuild.displayName = "#${env.BUILD_NUMBER} (${env.SHORT_SHA})"
-          echo "Building commit ${env.SHORT_SHA} on branch ${env.BRANCH_NAME}"
+          echo "Building commit ${env.SHORT_SHA} on branch ${env.TARGET_BRANCH}"
         }
       }
     }
@@ -109,7 +110,7 @@ pipeline {
 
     stage('Push to Docker Hub') {
       when {
-        branch 'main'
+        expression { return env.TARGET_BRANCH == 'main' || env.TARGET_BRANCH == 'HEAD' }
       }
       steps {
         script {
@@ -133,10 +134,7 @@ pipeline {
 
     stage('Deploy to Kubernetes') {
       when {
-        allOf {
-          branch 'main'
-          expression { return params.DEPLOY == true }
-        }
+        expression { return (env.TARGET_BRANCH == 'main' || env.TARGET_BRANCH == 'HEAD') && (params.DEPLOY == true || params.DEPLOY == null) }
       }
       steps {
         echo "Deploying release ${env.RELEASE} with image tag ${env.SHORT_SHA}..."
@@ -153,10 +151,7 @@ pipeline {
 
     stage('Smoke Test Health Endpoints') {
       when {
-        allOf {
-          branch 'main'
-          expression { return params.DEPLOY == true }
-        }
+        expression { return (env.TARGET_BRANCH == 'main' || env.TARGET_BRANCH == 'HEAD') && (params.DEPLOY == true || params.DEPLOY == null) }
       }
       steps {
         script {
