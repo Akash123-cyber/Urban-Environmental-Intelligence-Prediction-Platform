@@ -26,8 +26,6 @@ The complete cloud-native infrastructure is actively provisioned and hosted on A
 | Service | Access URL | Username / Identity | Password / Token |
 | :--- | :--- | :--- | :--- |
 | **Interactive Dashboard** | [http://app.184.196.112.96.nip.io](http://app.184.196.112.96.nip.io) | `admin@example.com` | `UB8faXqtBnrSC9qzsj3t1fo1` |
-| **Jenkins Controller** | [http://184.196.112.96:8080](http://184.196.112.96:8080) | `admin` | `53745d3c15584eccb436467585cfde9d` |
-| **Node SSH Access** | `ssh ubuntu@184.196.112.96` | `ubuntu` | Key-based (`~/.ssh/id_rsa`) |
 
 ---
 
