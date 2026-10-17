@@ -17,7 +17,7 @@ from . import ml, repo, scheduler
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 log = logging.getLogger("urban-eipp.analytics")
 USE_PRETRAINED = os.getenv("USE_PRETRAINED", "true").lower() == "true"
-registry = ml.S3ModelRegistry()
+registry = ml.S3ModelRegistry(auto_resolve=True)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     task = asyncio.create_task(scheduler.loop(registry)) if os.getenv("ENABLE_SCHEDULER", "true").lower() == "true" else None
@@ -58,7 +58,31 @@ def ready():
 
 @app.get("/models")
 def models():
-    return {**registry.status(), "training_enabled": False, "training_location": "offline Colab workflow"}
+    return {
+        **registry.status(),
+        "training_enabled": False,
+        "training_location": "offline Colab workflow",
+        "manifest": registry.manifest,
+    }
+
+
+@app.get("/models/version")
+def model_version():
+    return {
+        "active_version": registry.active_version,
+        "version_source": registry.version_source,
+        "last_reloaded_at": registry.last_reloaded_at,
+    }
+
+
+@app.post("/models/reload")
+def reload_models():
+    """Trigger hot-reload of models from S3 without restarting the service."""
+    if not registry.bucket:
+        raise HTTPException(status_code=503, detail="S3_MODEL_BUCKET is not configured")
+    result = registry.reload(force=True)
+    log.info("Model registry hot-reloaded: %s", result)
+    return {"status": "success", "reload": result}
 
 
 @app.post("/train")

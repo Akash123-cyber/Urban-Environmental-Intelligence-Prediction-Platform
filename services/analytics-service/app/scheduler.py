@@ -23,6 +23,9 @@ def run_cycle(registry) -> list[dict]:
         if not acquired:
             return [{"status": "skipped", "reason": "another replica owns the analytics lock"}]
         try:
+            if getattr(registry, "check_for_updates", None):
+                if registry.check_for_updates():
+                    log.info("Detected new model version on S3; reloaded active models to version=%s", getattr(registry, "active_version", "unknown"))
             for city in repo.list_cities():
                 city_id, slug = city["id"], city["slug"]
                 try:

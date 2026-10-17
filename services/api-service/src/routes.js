@@ -173,4 +173,24 @@ router.get('/admin/system', requireRole('admin'), wrap(async (_req, res) => {
   res.json(rows[0]);
 }));
 
+router.get('/models', wrap(async (_req, res) => {
+  try {
+    const r = await fetch(`${ANALYTICS_URL}/models`);
+    const data = await r.json();
+    res.status(r.status).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'analytics service unreachable', details: err.message });
+  }
+}));
+
+router.post('/models/reload', wrap(async (_req, res) => {
+  try {
+    const r = await fetch(`${ANALYTICS_URL}/models/reload`, { method: 'POST' });
+    const data = await r.json();
+    res.status(r.status).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'analytics service unreachable', details: err.message });
+  }
+}));
+
 module.exports = router;

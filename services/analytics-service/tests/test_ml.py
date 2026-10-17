@@ -62,6 +62,44 @@ def test_rejects_unstable_slug_and_unknown_target():
         registry.get("new-delhi", "ozone")
 
 
+def test_dynamic_version_resolution_from_pointer():
+    s3 = FakeS3({
+        "models/LATEST_VERSION": b"202610171600",
+        "models/202610171600/new-delhi_pm25.joblib": bundle_bytes(),
+    })
+    registry = S3ModelRegistry(bucket="model-bucket", s3_client=s3, auto_resolve=True)
+    assert registry.active_version == "202610171600"
+    model = registry.get("new-delhi", "pm25")
+    assert model["version"] == "test-v1"
+
+
+def test_hot_reload_clears_cache_and_switches_version():
+    stream1 = io.BytesIO()
+    joblib.dump({"model": DummyModel(), "version": "v1", "target": "pm25"}, stream1)
+    stream2 = io.BytesIO()
+    joblib.dump({"model": DummyModel(), "version": "v2", "target": "pm25"}, stream2)
+
+    s3_objects = {
+        "models/LATEST_VERSION": b"202610171000",
+        "models/202610171000/delhi_pm25.joblib": stream1.getvalue(),
+        "models/202610171200/delhi_pm25.joblib": stream2.getvalue(),
+    }
+    s3 = FakeS3(s3_objects)
+    registry = S3ModelRegistry(bucket="model-bucket", s3_client=s3, auto_resolve=True)
+    assert registry.active_version == "202610171000"
+    assert registry.get("delhi", "pm25")["version"] == "v1"
+
+    # Colab updates LATEST_VERSION on S3
+    s3_objects["models/LATEST_VERSION"] = b"202610171200"
+
+    # Trigger hot-reload
+    reload_result = registry.reload()
+    assert reload_result["previous_version"] == "202610171000"
+    assert reload_result["active_version"] == "202610171200"
+    assert registry.get("delhi", "pm25")["version"] == "v2"
+
+
+
 def test_prepare_and_features_are_hourly():
     frame = pd.DataFrame({
         "observed_at": pd.date_range("2026-01-01", periods=48, freq="h", tz="UTC"),
