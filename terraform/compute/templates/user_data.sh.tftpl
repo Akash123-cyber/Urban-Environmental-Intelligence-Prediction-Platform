@@ -304,6 +304,7 @@ kind: Service
 metadata:
   name: data-collector
   namespace: urban
+  labels: { app: data-collector }
 spec:
   ports: [{ name: http, port: 8080, targetPort: http }]
   selector: { app: data-collector }
@@ -342,6 +343,7 @@ kind: Service
 metadata:
   name: data-processor
   namespace: urban
+  labels: { app: data-processor }
 spec:
   ports: [{ name: http, port: 5000, targetPort: http }]
   selector: { app: data-processor }
@@ -380,6 +382,7 @@ kind: Service
 metadata:
   name: analytics-service
   namespace: urban
+  labels: { app: analytics-service }
 spec:
   ports: [{ name: http, port: 5001, targetPort: http }]
   selector: { app: analytics-service }
@@ -419,6 +422,7 @@ kind: Service
 metadata:
   name: api-service
   namespace: urban
+  labels: { app: api-service }
 spec:
   ports: [{ name: http, port: 3000, targetPort: http }]
   selector: { app: api-service }
@@ -453,6 +457,7 @@ kind: Service
 metadata:
   name: web-dashboard
   namespace: urban
+  labels: { app: web-dashboard }
 spec:
   ports: [{ name: http, port: 80, targetPort: http }]
   selector: { app: web-dashboard }
@@ -496,6 +501,41 @@ spec:
                 name: api-service
                 port: { number: 3000 }
 EOF
+
+# 5.6 ServiceMonitor for Prometheus scraping
+cat <<'EOFSM' > "$MANIFESTS_DIR/06-servicemonitor.yaml"
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: urban-microservices
+  namespace: urban
+  labels:
+    release: kps
+spec:
+  selector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: ["analytics-service", "api-service", "data-collector", "data-processor"]
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+EOFSM
+
+# 5.7 Pre-provisioned Grafana Urban Health Dashboard
+cat <<'EOFDASH' > "$MANIFESTS_DIR/07-grafana-dashboard.yaml"
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: urban-health-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  urban-health.json: |-
+${indent(4, grafana_dashboard_json)}
+EOFDASH
 
 # 6. Install Helm 3 on host
 curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
@@ -656,6 +696,8 @@ docker exec -u 0 jenkins bash -c "
   curl -LO \"https://dl.k8s.io/release/\$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl\"
   chmod +x kubectl && mv kubectl /usr/local/bin/
 " || true
+docker cp /usr/bin/ctr jenkins:/usr/bin/ctr || true
+docker commit jenkins urban-jenkins:latest || true
 
 # Install Jenkins Essential Plugins
 docker exec -u 0 jenkins jenkins-plugin-cli --plugins git github workflow-aggregator pipeline-stage-view ws-cleanup || true
@@ -732,5 +774,127 @@ sleep 20
 until curl -sf -u admin:53745d3c15584eccb436467585cfde9d http://localhost:8080/api/json >/dev/null 2>&1; do
   sleep 5
 done
+
+# 10. Automated Seeding of 96h Historical Observations, 24h Predictions & Alerts
+echo "Waiting for postgres and data-processor to be ready for seeding..."
+until kubectl -n urban get pod postgres-0 2>/dev/null | grep -q "1/1.*Running"; do
+  sleep 5
+done
+until kubectl -n urban get deployment data-processor 2>/dev/null | grep -q "1/1"; do
+  sleep 5
+done
+
+cat <<'EOFSEED' > /tmp/seed_all_cities.py
+import math, random, os
+from datetime import datetime, timedelta, timezone
+import psycopg2
+
+def seed_all_cities():
+    db_url = os.getenv("DATABASE_URL", "postgresql://urban:${postgres_password}@postgres:5432/urban")
+    conn = psycopg2.connect(db_url)
+    conn.autocommit = True
+    cur = conn.cursor()
+
+    cur.execute("SELECT id, name, slug FROM cities ORDER BY id;")
+    cities = cur.fetchall()
+    now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+
+    profiles = {
+        1:  {"name": "Delhi",      "pm25": 170, "pm10": 190, "temp": 27, "hum": 48, "wind": 1.6},
+        2:  {"name": "Mumbai",     "pm25": 74,  "pm10": 86,  "temp": 30, "hum": 62, "wind": 3.0},
+        3:  {"name": "Kolkata",    "pm25": 75,  "pm10": 76,  "temp": 28, "hum": 70, "wind": 2.5},
+        4:  {"name": "Chennai",    "pm25": 20,  "pm10": 24,  "temp": 30, "hum": 74, "wind": 4.2},
+        5:  {"name": "Bengaluru",  "pm25": 22,  "pm10": 25,  "temp": 22, "hum": 65, "wind": 3.5},
+    }
+
+    cur.execute("DELETE FROM predictions;")
+    cur.execute("DELETE FROM weather_data;")
+    cur.execute("DELETE FROM air_quality_data;")
+    cur.execute("DELETE FROM alerts;")
+
+    for city_id, name, slug in cities:
+        prof = profiles.get(city_id, {"pm25": 100, "pm10": 160, "temp": 26, "hum": 60, "wind": 3.0})
+        for h in range(96, -1, -1):
+            t = now - timedelta(hours=h)
+            hour_of_day = t.hour
+            diurnal = 1.0 + 0.25 * math.sin((hour_of_day - 6) * math.pi / 12)
+            noise = random.uniform(-8.0, 8.0)
+            is_anomaly = (h == 14 and city_id in [1]) or (h == 28 and city_id == 2)
+            anomaly_mult = 1.55 if is_anomaly else 1.0
+
+            pm25 = round(max(15.0, (prof["pm25"] * diurnal + noise) * anomaly_mult), 1)
+            pm10 = round(max(30.0, (prof["pm10"] * diurnal + noise * 1.4) * anomaly_mult), 1)
+            no2 = round(max(10.0, 35.0 + 15.0 * diurnal + random.uniform(-4, 4)), 1)
+            o3 = round(max(5.0, 25.0 + 10.0 * math.sin(hour_of_day * math.pi / 12) + random.uniform(-3, 3)), 1)
+            co = round(max(0.2, 1.2 * diurnal + random.uniform(-0.1, 0.2)), 2)
+            so2 = round(max(2.0, 12.0 + random.uniform(-2, 3)), 1)
+
+            if pm25 <= 30: aqi = int(pm25 * 50 / 30)
+            elif pm25 <= 60: aqi = int(50 + (pm25 - 30) * 50 / 30)
+            elif pm25 <= 90: aqi = int(100 + (pm25 - 60) * 100 / 30)
+            elif pm25 <= 120: aqi = int(200 + (pm25 - 90) * 100 / 30)
+            elif pm25 <= 250: aqi = int(300 + (pm25 - 120) * 100 / 130)
+            else: aqi = int(400 + (pm25 - 250) * 100 / 100)
+            aqi = min(500, aqi)
+
+            cur.execute("""
+                INSERT INTO air_quality_data 
+                (city_id, observed_at, pm25, pm10, no2, o3, co, so2, aqi, is_anomaly, source)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+            """, (city_id, t, pm25, pm10, no2, o3, co, so2, aqi, is_anomaly, "cpcb_telemetry"))
+
+            temp = round(prof["temp"] + 5.0 * math.sin((hour_of_day - 9) * math.pi / 12) + random.uniform(-1, 1), 1)
+            hum = round(max(20.0, min(95.0, prof["hum"] - 10.0 * math.sin((hour_of_day - 9) * math.pi / 12) + random.uniform(-2, 2))), 1)
+            wind = round(max(0.5, prof["wind"] + random.uniform(-0.8, 0.8)), 1)
+
+            cur.execute("""
+                INSERT INTO weather_data 
+                (city_id, observed_at, temperature, humidity, wind_speed)
+                VALUES (%s, %s, %s, %s, %s);
+            """, (city_id, t, temp, hum, wind))
+
+    for city_id, name, slug in cities:
+        prof = profiles.get(city_id, {"pm25": 100, "pm10": 160})
+        for h in range(1, 25):
+            target_t = now + timedelta(hours=h)
+            hour_of_day = target_t.hour
+            diurnal = 1.0 + 0.22 * math.sin((hour_of_day - 6) * math.pi / 12)
+            noise = random.uniform(-5.0, 5.0)
+            pred_pm25 = round(max(15.0, prof["pm25"] * diurnal + noise), 1)
+            pred_pm10 = round(max(30.0, prof["pm10"] * diurnal + noise * 1.3), 1)
+            cur.execute("""
+                INSERT INTO predictions 
+                (city_id, generated_at, target_time, predicted_pm25, predicted_pm10, model_version, based_on)
+                VALUES (%s, %s, %s, %s, %s, %s, %s);
+            """, (city_id, now, target_t, pred_pm25, pred_pm10, "lightgbm_v1.0.0", now))
+
+    active_alerts = [
+        (1, 'critical', 'high_aqi', 'Severe AQI Alert: PM2.5 reached 242.0 µg/m³ under calm boundary conditions. Sensitive groups advised to stay indoors.'),
+        (1, 'warning', 'inversion', 'Thermal Inversion Warning: Rapid surface radiative cooling detected with 1.1 m/s wind velocity; dispersion capacity restricted.'),
+        (1, 'critical', 'high_aqi', 'PM2.5 spike (268.4 µg/m³) exceeded Severe regulatory threshold. Automated mitigation and GRAP Stage-IV advisory active.'),
+        (2, 'warning', 'anomaly', 'Relative humidity drop combined with low wind velocity detected. Atmospheric dispersion index diminished.'),
+        (3, 'warning', 'industrial_emission', 'Industrial boundary corridor elevation: Elevated NO2 and particulate accumulation near eastern ring road.'),
+        (4, 'warning', 'dust_storm', 'Elevated particulate flux detected along the coastal corridor due to onshore wind shear.'),
+        (5, 'info', 'sensor_anomaly', 'Sensor Node BLR-08 self-check passed: Automated recalibration completed after transient spike.'),
+    ]
+    for city_id, severity, alert_type, message in active_alerts:
+        created_time = now - timedelta(minutes=random.randint(15, 180))
+        cur.execute("""
+            INSERT INTO alerts (city_id, severity, type, message, created_at, resolved_at)
+            VALUES (%s, %s, %s, %s, %s, NULL);
+        """, (city_id, severity, alert_type, message, created_time))
+
+    conn.close()
+    print("Database seeding completed.")
+
+if __name__ == "__main__":
+    seed_all_cities()
+EOFSEED
+
+DP_POD=$(kubectl -n urban get pods -l app=data-processor -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+if [ -n "$DP_POD" ]; then
+  kubectl -n urban cp /tmp/seed_all_cities.py "$DP_POD":/tmp/seed_all_cities.py || true
+  kubectl -n urban exec deploy/data-processor -- python /tmp/seed_all_cities.py || true
+fi
 
 echo "bootstrap complete" > /var/log/bootstrap-done

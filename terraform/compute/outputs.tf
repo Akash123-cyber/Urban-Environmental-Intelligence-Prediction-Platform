@@ -5,7 +5,7 @@ output "instance_id" {
 
 output "public_ip" {
   description = "Elastic IP address attached to the single-node k3s cluster"
-  value       = aws_eip.node.public_ip
+  value       = local.public_ip
 }
 
 output "private_ip" {
@@ -15,37 +15,37 @@ output "private_ip" {
 
 output "app_url" {
   description = "Public URL for React Frontend Dashboard via nip.io"
-  value       = "http://app.${aws_eip.node.public_ip}.nip.io"
+  value       = "http://app.${local.public_ip}.nip.io"
 }
 
 output "api_url" {
   description = "Public URL for Express API Service via nip.io"
-  value       = "http://api.${aws_eip.node.public_ip}.nip.io"
+  value       = "http://api.${local.public_ip}.nip.io"
 }
 
 output "api_health_url" {
   description = "Health check endpoint for Express API"
-  value       = "http://api.${aws_eip.node.public_ip}.nip.io/health"
+  value       = "http://api.${local.public_ip}.nip.io/health"
 }
 
 output "jenkins_url" {
   description = "Public URL for Jenkins Web Console"
-  value       = "http://${aws_eip.node.public_ip}:8080"
+  value       = "http://${local.public_ip}:8080"
 }
 
 output "github_webhook_url" {
   description = "Target URL for GitHub Webhooks to trigger Jenkins automated CI/CD"
-  value       = "http://${aws_eip.node.public_ip}:8080/github-webhook/"
+  value       = "http://${local.public_ip}:8080/github-webhook/"
 }
 
 output "ssh_command" {
   description = "Convenience SSH command to connect to the node"
-  value       = "ssh -i ~/.ssh/${var.key_name}.pem ubuntu@${aws_eip.node.public_ip}"
+  value       = "ssh -i ~/.ssh/${var.key_name}.pem ubuntu@${local.public_ip}"
 }
 
 output "kubeconfig_fetch_command" {
   description = "Command to retrieve the kubeconfig and configure local kubectl"
-  value       = "ssh -i ~/.ssh/${var.key_name}.pem ubuntu@${aws_eip.node.public_ip} 'sudo cat /etc/rancher/k3s/k3s.yaml' | sed 's/127.0.0.1/${aws_eip.node.public_ip}/' > kubeconfig && export KUBECONFIG=$(pwd)/kubeconfig"
+  value       = "ssh -i ~/.ssh/${var.key_name}.pem ubuntu@${local.public_ip} 'sudo cat /etc/rancher/k3s/k3s.yaml' | sed 's/127.0.0.1/${local.public_ip}/' > kubeconfig && export KUBECONFIG=$(pwd)/kubeconfig"
 }
 
 output "database_password" {

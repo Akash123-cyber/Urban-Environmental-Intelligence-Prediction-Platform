@@ -76,3 +76,18 @@ resource "aws_s3_bucket_lifecycle_configuration" "processed" {
     noncurrent_version_expiration { noncurrent_days = 30 }
   }
 }
+
+resource "aws_eip" "node" {
+  domain = "vpc"
+
+  lifecycle {
+    prevent_destroy = true
+  }
+
+  tags = {
+    Project     = var.project
+    Environment = var.environment
+    Name        = "${var.project}-${var.environment}-eip"
+    ManagedBy   = "Terraform"
+  }
+}

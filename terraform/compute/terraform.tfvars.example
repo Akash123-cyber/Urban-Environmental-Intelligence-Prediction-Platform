@@ -1,4 +1,4 @@
-region      = "us-east-1"
+region      = "ap-south-1"
 project     = "urban-eipp"
 environment = "dev"
 key_name    = "REPLACE_WITH_EXISTING_EC2_KEY_PAIR"
@@ -10,6 +10,10 @@ bucket_names = {
   processed = "REPLACE_WITH_PROCESSED_BUCKET"
   models    = "REPLACE_WITH_MODEL_BUCKET"
 }
+
+# Persistent Elastic IP Allocation ID (from `terraform -chdir=../persistent output -raw elastic_ip_id`)
+# Ensures public IP address never changes across compute destroy/re-creation.
+elastic_ip_id = "REPLACE_WITH_PERSISTENT_ELASTIC_IP_ALLOCATION_ID"
 
 # Docker Hub images (built externally via CI/CD, pulled directly by k3s)
 docker_registry = "docker.io/yourusername"

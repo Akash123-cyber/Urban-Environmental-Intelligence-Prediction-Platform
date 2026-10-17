@@ -149,9 +149,39 @@ resource "aws_iam_instance_profile" "node" {
   tags = local.tags
 }
 
+data "aws_eip" "explicit" {
+  count = var.elastic_ip_id != "" ? 1 : 0
+  id    = var.elastic_ip_id
+}
+
+data "aws_eips" "tagged" {
+  count = var.elastic_ip_id == "" ? 1 : 0
+  tags = {
+    Name = "${local.name}-eip"
+  }
+}
+
+data "aws_eip" "by_tag" {
+  count = var.elastic_ip_id == "" && length(try(data.aws_eips.tagged[0].allocation_ids, [])) > 0 ? 1 : 0
+  id    = data.aws_eips.tagged[0].allocation_ids[0]
+}
+
 resource "aws_eip" "node" {
+  count  = var.elastic_ip_id == "" && length(try(data.aws_eips.tagged[0].allocation_ids, [])) == 0 ? 1 : 0
   domain = "vpc"
   tags   = merge(local.tags, { Name = "${local.name}-eip" })
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+locals {
+  eip_allocation_id = var.elastic_ip_id != "" ? data.aws_eip.explicit[0].id : (
+    length(data.aws_eip.by_tag) > 0 ? data.aws_eip.by_tag[0].id : aws_eip.node[0].id
+  )
+  public_ip = var.elastic_ip_id != "" ? data.aws_eip.explicit[0].public_ip : (
+    length(data.aws_eip.by_tag) > 0 ? data.aws_eip.by_tag[0].public_ip : aws_eip.node[0].public_ip
+  )
 }
 
 resource "aws_instance" "node" {
@@ -164,7 +194,7 @@ resource "aws_instance" "node" {
   associate_public_ip_address = true
 
   user_data_base64 = base64gzip(templatefile("${path.module}/templates/user_data.sh.tftpl", {
-    public_ip         = aws_eip.node.public_ip
+    public_ip         = local.public_ip
     region            = var.region
     raw_bucket        = var.bucket_names["raw"]
     processed_bucket  = var.bucket_names["processed"]
@@ -174,8 +204,9 @@ resource "aws_instance" "node" {
     admin_email       = var.admin_email
     admin_password    = random_password.admin.result
     openaq_api_key    = var.openaq_api_key
-    docker_registry   = var.docker_registry
-    docker_tag        = var.docker_tag
+    docker_registry        = var.docker_registry
+    docker_tag             = var.docker_tag
+    grafana_dashboard_json = file("${path.module}/../../monitoring/dashboards/urban-health.json")
   }))
 
   metadata_options {
@@ -195,5 +226,5 @@ resource "aws_instance" "node" {
 
 resource "aws_eip_association" "node" {
   instance_id   = aws_instance.node.id
-  allocation_id = aws_eip.node.id
+  allocation_id = local.eip_allocation_id
 }

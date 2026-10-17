@@ -3,11 +3,14 @@ kind: Service
 metadata:
   name: data-processor
   namespace: urban
+  labels:
+    app: data-processor
 spec:
   selector:
     app: data-processor
   ports:
-    - port: 5000
+    - name: http
+      port: 5000
       targetPort: 5000
 ---
 apiVersion: apps/v1

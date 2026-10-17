@@ -68,3 +68,9 @@ variable "openaq_api_key" {
   type        = string
   default     = ""
 }
+
+variable "elastic_ip_id" {
+  description = "Optional Allocation ID of an existing persistent Elastic IP (e.g. from terraform/persistent). If set, compute attaches this EIP so the IP address remains fixed across compute destruction and re-creation."
+  type        = string
+  default     = ""
+}

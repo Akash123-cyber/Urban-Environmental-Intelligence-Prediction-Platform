@@ -3,11 +3,14 @@ kind: Service
 metadata:
   name: analytics-service
   namespace: urban
+  labels:
+    app: analytics-service
 spec:
   selector:
     app: analytics-service
   ports:
-    - port: 5001
+    - name: http
+      port: 5001
       targetPort: 5001
 ---
 apiVersion: apps/v1

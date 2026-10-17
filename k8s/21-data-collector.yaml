@@ -3,11 +3,14 @@ kind: Service
 metadata:
   name: data-collector
   namespace: urban
+  labels:
+    app: data-collector
 spec:
   selector:
     app: data-collector
   ports:
-    - port: 8080
+    - name: http
+      port: 8080
       targetPort: 8080
 ---
 apiVersion: apps/v1
