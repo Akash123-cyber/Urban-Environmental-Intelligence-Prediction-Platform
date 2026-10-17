@@ -624,6 +624,12 @@ sed -i "s|127.0.0.1:6443|$PRIV_IP:6443|g" /var/jenkins_home/.kube/config
 chown -R 1000:1000 /var/jenkins_home/.kube
 chmod 600 /var/jenkins_home/.kube/config
 
+mkdir -p /etc/systemd/system/k3s.service.d
+cat <<EOF > /etc/systemd/system/k3s.service.d/override.conf
+[Service]
+ExecStartPost=/bin/sh -c 'sleep 2 && chmod 666 /run/k3s/containerd/containerd.sock'
+EOF
+systemctl daemon-reload
 chmod 666 /run/k3s/containerd/containerd.sock 2>/dev/null || true
 
 # Run Jenkins container

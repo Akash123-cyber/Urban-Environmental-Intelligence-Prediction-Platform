@@ -3,7 +3,7 @@ import { api, setToken } from './api';
 
 export default function Login({ onLogin }) {
   const [email, setEmail] = useState('admin@example.com');
-  const [password, setPassword] = useState('AdminPassword123!');
+  const [password, setPassword] = useState('TLX5oxHjvMniTHfe2P2wBNMv');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
