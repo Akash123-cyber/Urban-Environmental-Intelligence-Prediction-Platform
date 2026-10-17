@@ -1,0 +1,25 @@
+# AWS Deployment Region
+region = "ap-south-1"
+
+# Project & Environment Names
+project     = "urban-eipp"
+environment = "prod"
+
+# EC2 Instance Type (Strictly cost-optimized t3.medium)
+instance_type = "t3.medium"
+
+# Root Volume Storage (Strictly 16 GB gp3)
+root_volume_gb = 16
+
+# EC2 Key Pair Name
+key_name = "urban-eipp-key"
+
+# Ingress CIDRs
+admin_cidrs = ["0.0.0.0/0"]
+
+# Container Image Registry
+docker_registry = "docker.io/akash123cyber"
+docker_tag      = "latest"
+
+# Administrator Email
+admin_email = "admin@urban.io"

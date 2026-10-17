@@ -38,7 +38,7 @@ variable "instance_type" {
 
 variable "root_volume_gb" {
   type    = number
-  default = 30
+  default = 16
 }
 
 variable "key_name" {
@@ -71,6 +71,12 @@ variable "openaq_api_key" {
 
 variable "elastic_ip_id" {
   description = "Optional Allocation ID of an existing persistent Elastic IP (e.g. from terraform/persistent). If set, compute attaches this EIP so the IP address remains fixed across compute destruction and re-creation."
+  type        = string
+  default     = ""
+}
+
+variable "dashboard_json_file" {
+  description = "Path to the urban health Grafana dashboard JSON file"
   type        = string
   default     = ""
 }

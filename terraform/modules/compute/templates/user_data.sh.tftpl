@@ -4,6 +4,8 @@ exec > >(tee /var/log/user-data.log) 2>&1
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
+apt-get purge -y snapd || true
+rm -rf /var/cache/snapd /var/lib/snapd /snap || true
 apt-get install -y curl jq unzip ca-certificates docker.io
 systemctl enable --now docker
 usermod -aG docker ubuntu
@@ -21,12 +23,16 @@ fi
 TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
 PRIV_IP=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/local-ipv4)
 
-# 3. Install k3s with Traefik & ServiceLB disabled (Ingress-Nginx handles ports 80/443)
+# 3. Install k3s with Docker CRI (eliminates duplicate containerd storage on 16GB disk)
 curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server \
+  --docker \
   --disable traefik --disable servicelb \
   --write-kubeconfig-mode 644 \
   --tls-san ${public_ip} --tls-san $PRIV_IP \
-  --kubelet-arg=fail-swap-on=false" sh -
+  --kubelet-arg=fail-swap-on=false \
+  --kubelet-arg=image-gc-high-threshold=85 \
+  --kubelet-arg=image-gc-low-threshold=80 \
+  --kubelet-arg=eviction-hard=imagefs.available<5%,nodefs.available<5%" sh -
 
 # 4. Wait for k3s cluster ready
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
@@ -523,28 +529,27 @@ spec:
       interval: 15s
 EOFSM
 
-# 5.7 Pre-provisioned Grafana Urban Health Dashboard
-cat <<'EOFDASH' > "$MANIFESTS_DIR/07-grafana-dashboard.yaml"
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: urban-health-dashboard
-  namespace: monitoring
-  labels:
-    grafana_dashboard: "1"
-data:
-  urban-health.json: |-
-${indent(4, grafana_dashboard_json)}
+# 5.7 Pre-provisioned Grafana Urban Health Dashboard JSON
+cat <<'EOFDASH' > /etc/urban/urban-health.json
+${grafana_dashboard_json}
 EOFDASH
+
 
 # 6. Install Helm 3 on host
 curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-# 7. Pre-pull Microservice Docker Images and Import into K3s containerd
-for svc in data-collector data-processor analytics-service api-service web-dashboard; do
-  docker pull ${docker_registry}/$svc:${docker_tag} || true
-  docker save ${docker_registry}/$svc:${docker_tag} | k3s ctr images import - 2>/dev/null || true
-done
+# 7. Pre-build Microservice Docker Images and Import into K3s containerd
+git clone https://github.com/Akash123-cyber/Urban-Environmental-Intelligence-Prediction-Platform.git /tmp/urban-repo || true
+if [ -d /tmp/urban-repo/services ]; then
+  for svc in data-collector data-processor analytics-service api-service web-dashboard; do
+    echo "Building Docker image for $svc..."
+    docker build -t ${docker_registry}/$svc:${docker_tag} /tmp/urban-repo/services/$svc || true
+  done
+  rm -rf /tmp/urban-repo
+fi
+docker image prune -f || true
+apt-get clean || true
+rm -rf /var/lib/apt/lists/* || true
 
 # 8. Deploy Prometheus & Grafana Observability Stack
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
@@ -574,21 +579,21 @@ kubeProxy: { enabled: false }
 
 prometheus:
   prometheusSpec:
-    retention: 3d
-    retentionSize: 4GB
+    retention: 2d
+    retentionSize: 1.5GB
     scrapeInterval: 30s
     serviceMonitorSelectorNilUsesHelmValues: false
     podMonitorSelectorNilUsesHelmValues: false
     ruleSelectorNilUsesHelmValues: false
     resources:
-      requests: { cpu: 50m, memory: 200Mi }
-      limits: { memory: 600Mi }
+      requests: { cpu: 30m, memory: 160Mi }
+      limits: { memory: 400Mi }
     storageSpec:
       volumeClaimTemplate:
         spec:
           storageClassName: local-path
           accessModes: ["ReadWriteOnce"]
-          resources: { requests: { storage: 3Gi } }
+          resources: { requests: { storage: 1.5Gi } }
 
 alertmanager:
   alertmanagerSpec:
@@ -653,6 +658,13 @@ helm upgrade --install kps prometheus-community/kube-prometheus-stack \
   -f /var/lib/kube-prometheus-stack-values.yaml \
   --timeout 10m || true
 
+# Apply urban-health dashboard to Grafana via ConfigMap
+if [ -f /etc/urban/urban-health.json ]; then
+  kubectl create configmap urban-health-dashboard -n monitoring --from-file=urban-health.json=/etc/urban/urban-health.json -o yaml --dry-run=client | kubectl apply -f -
+  kubectl label configmap urban-health-dashboard -n monitoring grafana_dashboard="1" --overwrite || true
+fi
+
+
 # 9. Bootstrap Jenkins CI/CD Controller on port 8080
 mkdir -p /var/jenkins_home/.kube
 chown -R 1000:1000 /var/jenkins_home
@@ -672,13 +684,12 @@ EOF
 systemctl daemon-reload
 chmod 666 /run/k3s/containerd/containerd.sock 2>/dev/null || true
 
-# Run Jenkins container
+# Run Jenkins container with memory limits optimized for t3.medium
 docker run -d --name jenkins --restart unless-stopped \
   -p 8080:8080 -p 50000:50000 \
   -v /var/jenkins_home:/var/jenkins_home \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  -v /run/k3s/containerd/containerd.sock:/run/k3s/containerd/containerd.sock \
-  -e JAVA_OPTS="-Djenkins.install.runSetupWizard=false" \
+  -e JAVA_OPTS="-Djenkins.install.runSetupWizard=false -Xms256m -Xmx512m" \
   jenkins/jenkins:lts-jdk21
 
 # Wait for Jenkins container to start
@@ -695,9 +706,8 @@ docker exec -u 0 jenkins bash -c "
   curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash || true
   curl -LO \"https://dl.k8s.io/release/\$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl\"
   chmod +x kubectl && mv kubectl /usr/local/bin/
+  apt-get clean && rm -rf /var/lib/apt/lists/*
 " || true
-docker cp /usr/bin/ctr jenkins:/usr/bin/ctr || true
-docker commit jenkins urban-jenkins:latest || true
 
 # Install Jenkins Essential Plugins
 docker exec -u 0 jenkins jenkins-plugin-cli --plugins git github workflow-aggregator pipeline-stage-view ws-cleanup || true
@@ -774,6 +784,16 @@ sleep 20
 until curl -sf -u admin:53745d3c15584eccb436467585cfde9d http://localhost:8080/api/json >/dev/null 2>&1; do
   sleep 5
 done
+
+# Trigger initial build of pipeline job so the platform builds & deploys immediately
+rm -f /tmp/jk_cookies
+CRUMB=$(curl -s -c /tmp/jk_cookies -u admin:53745d3c15584eccb436467585cfde9d http://localhost:8080/crumbIssuer/api/json 2>/dev/null | grep -o '"crumb":"[^"]*"' | cut -d'"' -f4 || true)
+if [ -n "$CRUMB" ]; then
+  curl -sf -b /tmp/jk_cookies -u admin:53745d3c15584eccb436467585cfde9d -H "Jenkins-Crumb: $CRUMB" -X POST http://localhost:8080/job/UrbanEIIP-Pipeline/build || true
+else
+  curl -sf -u admin:53745d3c15584eccb436467585cfde9d -X POST http://localhost:8080/job/UrbanEIIP-Pipeline/build || true
+fi
+
 
 # 10. Automated Seeding of 96h Historical Observations, 24h Predictions & Alerts
 echo "Waiting for postgres and data-processor to be ready for seeding..."

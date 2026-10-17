@@ -33,6 +33,11 @@ output "jenkins_url" {
   value       = "http://${local.public_ip}:8080"
 }
 
+output "grafana_url" {
+  description = "Public URL for Grafana Observability Dashboard via nip.io"
+  value       = "http://grafana.${local.public_ip}.nip.io"
+}
+
 output "github_webhook_url" {
   description = "Target URL for GitHub Webhooks to trigger Jenkins automated CI/CD"
   value       = "http://${local.public_ip}:8080/github-webhook/"

@@ -1,43 +1,94 @@
 # 🌍 Urban Environmental Intelligence & Prediction Platform (UrbanEIIP)
 
-[![Build Status](https://img.shields.io/badge/CI%2FCD-Jenkins%20Automated-blue?logo=jenkins)](http://13.206.193.63:8080)
-[![AWS Cloud](https://img.shields.io/badge/AWS-EC2%20%7C%20S3%20%7C%20EIP-orange?logo=amazon-aws)](https://aws.amazon.com)
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-K3s%20Cluster-326ce5?logo=kubernetes)](https://k3s.io)
+[![CI/CD Pipeline](https://img.shields.io/badge/CI%2FCD-Jenkins%20Automated-blue?logo=jenkins)](http://13.206.193.63:8080)
+[![AWS Cloud](https://img.shields.io/badge/AWS-EC2%20(t3.medium)%20%7C%20S3%20%7C%20EIP-orange?logo=amazon-aws)](https://aws.amazon.com)
+[![Storage](https://img.shields.io/badge/Storage-16%20GB%20EBS%20gp3-critical)](https://aws.amazon.com/ebs/)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-K3s%20Docker%20CRI-326ce5?logo=kubernetes)](https://k3s.io)
 [![Machine Learning](https://img.shields.io/badge/ML-LightGBM%20Delta%20Residual-brightgreen?logo=scikit-learn)](https://lightgbm.readthedocs.io)
+[![Observability](https://img.shields.io/badge/Monitoring-Prometheus%20%2B%20Grafana-F46800?logo=grafana)](http://grafana.13.206.193.63.nip.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
 
-## 🚀 Live Public Deployment
+## 🚀 Live Public Deployment & Service Catalog
 
-The complete cloud-native infrastructure is actively provisioned and hosted on AWS with a dedicated Elastic IP:
+The entire cloud-native platform is provisioned and running live on AWS under a permanently preserved static Elastic IP in `ap-south-1` (Mumbai):
 
-| Component | Endpoint | Description |
+| Component | Public URL / Endpoint | Purpose & Functionality |
 | :--- | :--- | :--- |
-| **🌐 Interactive Dashboard** | [http://app.13.206.193.63.nip.io](http://app.13.206.193.63.nip.io) | React Frontend with Multi-Metric Forecasting & On-Demand Telemetry Refresh |
-| **🔌 API Gateway** | [http://api.13.206.193.63.nip.io](http://api.13.206.193.63.nip.io) | Node.js Express Gateway (Auth, Telemetry, Health, Inference Trigger) |
-| **🩺 API Health Check** | [http://api.13.206.193.63.nip.io/health](http://api.13.206.193.63.nip.io/health) | Real-time service readiness & database connectivity verification |
-| **📊 Grafana Observability** | [http://grafana.13.206.193.63.nip.io](http://grafana.13.206.193.63.nip.io) | Prometheus/Grafana real-time cluster telemetry, compute, and pod health |
-| **⚙️ Jenkins CI/CD Console** | [http://13.206.193.63:8080](http://13.206.193.63:8080) | Continuous Integration & Automated Delivery Pipeline Controller |
-| **🪝 GitHub Webhook URL** | `http://13.206.193.63:8080/github-webhook/` | Target URL configured in GitHub Repository Settings for automated build triggers |
-| **📍 Dedicated Elastic IP** | `13.206.193.63` | Static AWS IPv4 Allocation (`ap-south-1`) |
+| **🌐 Interactive Dashboard** | [http://app.13.206.193.63.nip.io](http://app.13.206.193.63.nip.io) | Production React SPA featuring Live Telemetry, 24-hr Forecasts, Multi-Metric Switcher (`PM2.5`, `PM10`, `Composite AQI`), User Sign In & Sign Up |
+| **🔌 API Gateway** | [http://api.13.206.193.63.nip.io](http://api.13.206.193.63.nip.io) | Express.js REST Gateway with JWT Authentication, Telemetry Query API, Anomaly Engine, and Force-Refresh Trigger |
+| **🩺 API Health Endpoint** | [http://api.13.206.193.63.nip.io/health](http://api.13.206.193.63.nip.io/health) | Automated cluster readiness check, database connection pool status, and microservice health |
+| **📊 Grafana Observability** | [http://grafana.13.206.193.63.nip.io](http://grafana.13.206.193.63.nip.io) | Real-time Prometheus dashboards, cluster resource graphs, pod memory working set, and platform health |
+| **⚙️ Jenkins CI/CD Console** | [http://13.206.193.63:8080](http://13.206.193.63:8080) | Continuous Integration server with pipeline execution logs, test matrices, and automated deployment history |
+| **🪝 GitHub Webhook URL** | `http://13.206.193.63:8080/github-webhook/` | Webhook endpoint configured in GitHub Repository Settings to trigger end-to-end CI/CD on every push |
+| **📍 Dedicated Elastic IP** | `13.206.193.63` | Static AWS IPv4 address with lifetime persistence across infrastructure tear-down and re-provisioning |
 
-> 🔒 **Administrative & Operational Credentials Notice:**  
-> All administrative passwords, Jenkins credentials, and Grafana monitoring access tokens are strictly managed as protected secrets and are documented exclusively in [`DEPLOYMENT_AND_INFRASTRUCTURE_REPORT.md`](../DEPLOYMENT_AND_INFRASTRUCTURE_REPORT.md) (never committed to public repository documentation).
+> 🔒 **Security Notice:**  
+> In compliance with strict production security standards, all administrative credentials, database passwords, Jenkins API tokens, and Grafana monitoring secrets are kept strictly separated from public repository documentation and are maintained exclusively in [`DEPLOYMENT_AND_INFRASTRUCTURE_REPORT.md`](../DEPLOYMENT_AND_INFRASTRUCTURE_REPORT.md).
 
 ---
 
-## 📖 Executive Summary
+## 💡 System Overview & Key Capabilities
 
-**Urban Environmental Intelligence & Prediction Platform (UrbanEIIP)** is a production-grade, distributed IoT and environmental telemetry platform designed for continuous air quality monitoring, automated anomaly detection, and forward-looking meteorological forecasting.
+**Urban Environmental Intelligence & Prediction Platform (UrbanEIIP)** is an enterprise-grade IoT and environmental analytics platform designed to solve the challenges of urban air quality monitoring and forward-looking meteorological forecasting in Indian metropolitan centers (Delhi, Mumbai, Kolkata, Chennai, Bengaluru).
 
-### Key Capabilities
-- **Real-Time Telemetry Ingestion**: Asynchronous multi-threaded ingestion from Central Pollution Control Board (CPCB), OpenAQ, and Open-Meteo across key Indian metropolitan areas.
-- **Delta-Residual Machine Learning**: Chronologically trained **LightGBM** models for PM2.5 and PM10 that predict delta movements against rolling baselines, eliminating static disparity.
-- **Regional Meteorological Fallback**: Dynamic regional matrix ensuring high-availability ML inference (e.g. Pune/Ahmedabad $\to$ Mumbai, Lucknow/Jaipur $\to$ Delhi).
-- **Interactive Multi-Metric Toggle**: Instant switching between `[ PM2.5 ]`, `[ PM10 ]`, and `[ Composite AQI ]` with official CPCB breakpoint interpolation.
-- **On-Demand Force Refresh**: User-triggered live collection, S3 synchronization, and re-inference directly from the dashboard.
-- **Ultra-Lean Resource Footprint**: Entire 5-service cluster runs inside ~650 MiB RAM on a single cost-optimized K3s node with 2 GB swap guard.
+### Core Features
+
+1. **Multi-Source Real-Time Telemetry Ingestion**
+   - Polls environmental data asynchronously from the Central Pollution Control Board (CPCB), OpenAQ v3 API, and Open-Meteo meteorological models.
+   - Fault-tolerant ingestion pipelines with automatic retry backoff, circuit breaking, and raw JSON payload archiving into Amazon S3.
+
+2. **Delta-Residual Machine Learning Inference**
+   - Implements chronological **LightGBM Delta Residual** regressors for PM2.5 and PM10. Rather than predicting raw volatile particulate counts directly, models predict the expected delta displacement ($\Delta$) relative to rolling diurnal and meteorological baselines.
+   - Eliminates static divergence between observation sites and model predictions.
+
+3. **Regional Meteorological Fallback Architecture**
+   - High-availability regional inference fallbacks allow uninterrupted forecasting even when local weather telemetry sensors experience outages (e.g. Pune/Ahmedabad fallback to Western Deccan/Mumbai profiles; Jaipur/Lucknow fallback to Northern Gangetic/Delhi profiles).
+
+4. **Interactive Multi-Metric Switcher & AQI Interpolation**
+   - Single-click toggle between `[ PM2.5 ]`, `[ PM10 ]`, and `[ Composite AQI ]`.
+   - Real-time piecewise sub-index interpolation according to official National Air Quality Index (NAQI) guidelines.
+
+5. **Self-Service User Sign Up & Authentication (Zero Schema Changes)**
+   - Allows new users to register and sign in directly from the UI.
+   - Built on top of the existing PostgreSQL `users` table (`id`, `email`, `password_hash`, `role`, `created_at`) with bcrypt password hashing (salt rounds: 10) and signed JWT tokens — **requiring zero database migrations or breaking schema modifications**.
+
+6. **Automated MLOps S3 Data Lake & Model Registry**
+   - Continuous raw ingestion telemetry is preserved as Snappy-compressed Parquet files in Amazon S3.
+   - Model training pipelines (e.g., in Google Colab or cloud workers) export versioned artifacts (`lightgbm_pm25_vX.Y.Z.txt`, `lightgbm_pm10_vX.Y.Z.txt`) to the S3 Model Registry bucket.
+   - Microservices dynamically detect, download, and hot-reload the latest semantic model version on startup and periodic sync.
+
+---
+
+## 🖥️ Production Hardware Architecture & Optimization
+
+### Hardware Sizing
+
+The platform is strictly deployed on a cost-effective, budget-conscious AWS footprint:
+- **Instance Type:** `t3.medium` (2 vCPUs Intel Xeon Platinum 8259CL, 4.0 GiB RAM)
+- **Root Block Storage:** **16 GB gp3 EBS Volume** (Strictly $\le$ 16 GB constraint)
+- **Swap Protection:** 2.0 GiB NVMe Swap file with `vm.swappiness=10`
+
+### Engineering for 16 GB Block Store on Single-Node Kubernetes
+
+Running a full production microservices mesh (5 application services + PostgreSQL 16 + Ingress-Nginx + Prometheus Operator + Alertmanager + Grafana + Jenkins CI/CD Controller) on a single 16 GB root volume typically causes disk exhaustion (`The node had condition: [DiskPressure]`) because standard K3s runs its own internal `containerd` runtime in addition to the host Docker daemon, duplicating multi-gigabyte container image layers.
+
+To eliminate this overhead and guarantee stable long-term operation on 16 GB disk, the platform incorporates four critical architectural optimizations:
+
+1. **Docker CRI Integration (`--docker`)**
+   K3s is configured with `--docker`, delegating all container runtime operations directly to the host Docker daemon. K3s and Docker share the exact same storage pool (`/var/lib/docker`), eliminating layer duplication and reclaiming over 3.5 GB of disk space.
+2. **Kubelet Garbage Collection Tuning**
+   Aggressive image and filesystem thresholds prevent disk pressure eviction:
+   ```text
+   --kubelet-arg=image-gc-high-threshold=85
+   --kubelet-arg=image-gc-low-threshold=80
+   --kubelet-arg=eviction-hard=imagefs.available<5%,nodefs.available<5%
+   ```
+3. **OS Footprint Reduction**
+   Canonical Snap daemon (`snapd`) and legacy packages are purged during cloud-init, reclaiming ~800 MB.
+4. **JVM Heap Sizing**
+   The Jenkins LTS container JVM is bounded to `-Xms256m -Xmx512m`, ensuring the CI/CD controller never competes with Kubernetes workloads for memory.
 
 ---
 
@@ -50,219 +101,230 @@ flowchart TD
     METEO["Open-Meteo Historical & Forecast"]
   end
 
-  subgraph IngestionAndProcessing["Ingestion & Data Pipeline"]
-    DC["data-collector<br/>(FastAPI / Python 3.12)"]
-    DP["data-processor<br/>(Python 3.12 / Pandas)"]
-    DB[("PostgreSQL 16<br/>Timescale Telemetry DB")]
-    S3_RAW[("AWS S3 Raw Archive")]
-    S3_PROC[("AWS S3 Processed Parquet")]
+  subgraph S3DataLake["AWS S3 Data Lake (Persistent)"]
+    S3_RAW[("s3://...-raw<br/>Raw Ingest Objects")]
+    S3_PROC[("s3://...-processed<br/>Snappy Parquet Archives")]
+    S3_MODELS[("s3://...-models<br/>Model Registry")]
   end
 
-  subgraph AnalyticsAndML["Machine Learning & Analytics"]
-    ANA["analytics-service<br/>(LightGBM / Scikit-Learn)"]
-    S3_MODELS[("AWS S3 Model Registry")]
-  end
+  subgraph K3sCluster["AWS EC2 (t3.medium / 16 GB) — K3s Cluster"]
+    subgraph IngressLayer["Ingress & Routing"]
+      ING["Ingress-Nginx Controller (:80 / :443)"]
+    end
 
-  subgraph PresentationGateway["Gateway & Presentation"]
-    API["api-service<br/>(Node.js 22 / Express)"]
-    UI["web-dashboard<br/>(React 18 / Vite / Tailwind)"]
+    subgraph AppMesh["Urban Platform Mesh (Namespace: urban)"]
+      DC["data-collector<br/>(FastAPI / Python 3.12)"]
+      DP["data-processor<br/>(Python 3.12 / Pandas)"]
+      ANA["analytics-service<br/>(LightGBM Engine)"]
+      API["api-service<br/>(Node.js 22 / Express)"]
+      UI["web-dashboard<br/>(React 18 / Vite / Tailwind)"]
+      DB[("PostgreSQL 16<br/>Timescale Telemetry DB")]
+    end
+
+    subgraph MonitoringMesh["Observability (Namespace: monitoring)"]
+      PROM["Prometheus Operator (1.5 GiB Retention)"]
+      GRAF["Grafana (Urban Health Dashboard)"]
+      AM["Alertmanager"]
+    end
+
+    subgraph CICDMesh["Host CI/CD Toolchain"]
+      JENK["Jenkins LTS Controller (:8080)"]
+    end
   end
 
   CPCB -->|Polls Telemetry| DC
-  METEO -->|Fetches Meteorology| DC
-  DC -->|Raw Payloads| DP
+  METEO -->|Meteorology Vectors| DC
   DC -->|Raw JSON Objects| S3_RAW
+  DC -->|Raw Payloads| DP
   DP -->|Validated Hourly Aggregates| DB
   DP -->|Daily Snappy Parquet| S3_PROC
   ANA -->|Delta Residual Inference| DB
-  S3_MODELS -->|Pre-trained Weights| ANA
-  DB -->|Queries State| API
+  S3_MODELS -->|Versioned Weights| ANA
+  DB -->|Queries State & Auth| API
   ANA -->|Forecast Vectors| API
   API -->|REST / JSON| UI
+  ING -->|app.nip.io| UI
+  ING -->|api.nip.io| API
+  ING -->|grafana.nip.io| GRAF
+  PROM -->|Scrapes Metrics| AppMesh
+  GRAF -->|Queries| PROM
 ```
 
 ---
 
-## 📂 Repository Structure
+## 📂 Modular Repository & Terraform Structure
+
+The repository follows an industry-standard root-and-module structure for **One-Click Infrastructure as Code**:
 
 ```text
 Urban-Environmental-Intelligence-Prediction-Platform/
-├── Jenkinsfile                  # Declarative Jenkins CI/CD pipeline (SCM Webhook driven)
+├── Jenkinsfile                  # SCM Webhook-driven Declarative CI/CD Pipeline
 ├── README.md                    # Platform documentation, live URLs & architecture guide
-├── docker-compose.yml           # Single-command local developer environment
+├── DEPLOYMENT_AND_INFRASTRUCTURE_REPORT.md  # Detailed operational report & access credentials
+├── docker-compose.yml           # Local multi-container development environment
 ├── .env.example                 # Standardized environment template
-├── .gitignore                   # Production gitignore rules (excludes secrets & extras)
+│
+├── terraform/                   # Production AWS Infrastructure as Code
+│   ├── main.tf                  # Root orchestration calling persistent & compute modules
+│   ├── variables.tf             # Input variable definitions with defaults
+│   ├── outputs.tf               # Infrastructure outputs (IPs, URLs, Bucket Names)
+│   ├── versions.tf              # Provider constraints (AWS >= 5.0, Terraform >= 1.5)
+│   ├── terraform.tfvars         # Active deployment configuration variables
+│   │
+│   └── modules/
+│       ├── persistent/          # Decoupled S3 Data Lake & Static Elastic IP
+│       │   ├── main.tf          # S3 buckets (raw, processed, models) & EIP
+│       │   ├── variables.tf
+│       │   └── outputs.tf
+│       │
+│       └── compute/             # Ephemeral Compute Node
+│           ├── main.tf          # EC2 instance (t3.medium), IAM role, Security Group, EIP attachment
+│           ├── variables.tf
+│           ├── outputs.tf
+│           └── templates/
+│               └── user_data.sh.tftpl  # Zero-touch cloud-init bootstrap script
+│
+├── scripts/
+│   ├── provision.sh             # One-click provisioning script (terraform init & apply)
+│   ├── destroy.sh               # Safe destroy script (preserves Elastic IP & S3 buckets)
+│   └── push_docker_images.sh    # Docker Hub container publishing automation
 │
 ├── services/                    # Microservices Source Code
 │   ├── data-collector/          # Periodic & On-Demand Telemetry Ingestion (Python/FastAPI)
 │   ├── data-processor/          # Telemetry cleaning, outlier filtering & hourly rollups
 │   ├── analytics-service/       # LightGBM inference, regional fallback & AQI scoring
-│   ├── api-service/             # Express.js REST gateway, JWT authentication & proxy
-│   └── web-dashboard/           # Modern React SPA with interactive charts & metric toggles
+│   ├── api-service/             # Express.js REST gateway, JWT authentication (Sign In & Sign Up)
+│   └── web-dashboard/           # React 18 SPA with interactive charts & metric toggles
 │
-├── terraform/                   # Infrastructure as Code (AWS)
-│   ├── persistent/              # S3 Data Buckets (raw, processed, model registry)
-│   └── compute/                 # EC2 (Ubuntu 22.04 LTS), Dedicated Elastic IP, Security Groups, K3s
+├── monitoring/                  # Observability Definitions
+│   ├── kube-prometheus-stack-values.yaml  # Tuned Helm values for t3.medium
+│   └── dashboards/
+│       └── urban-health.json    # Custom Grafana Urban Health Dashboard definition
 │
-├── helm/                        # Kubernetes Helm Charts
-│   └── urban-platform/          # Parameterized microservices deployment & Ingress rules
-│
-├── k8s/                         # Raw Kubernetes Manifests (Fallback / Reference)
-│
-├── notebooks/                   # ML Training & Research Notebooks
-│   └── urban_training.ipynb     # 180-day bootstrap, cross-validation & model gating
-│
-├── scripts/                     # Platform Automation
-│   └── push_docker_images.sh    # Automated Docker Hub tagging and publishing
-│
-└── extras/                      # [GIT-IGNORED] Local Development & Test Artifacts
-    ├── README.md                # Guide to offline test harnesses
-    ├── scripts/                 # Reusable offline test scripts (e.g., seed_all_cities.py)
-    ├── testing/                 # API mocks and unit testing harnesses
-    └── scratch/                 # Intermediate test data & scratchpads
+└── k8s/                         # Kubernetes Manifests
+    ├── 00-namespace.yaml        # Namespace definition (urban)
+    ├── 01-configmap.yaml        # Platform configuration
+    ├── 10-postgres.yaml         # PostgreSQL 16 Deployment & Service
+    ├── 20-data-processor.yaml   # Data Processor Deployment & Service
+    ├── 21-data-collector.yaml   # Data Collector Deployment & Service
+    ├── 22-analytics-service.yaml# Analytics Engine Deployment & Service
+    ├── 23-api-service.yaml      # API Gateway Deployment & Service
+    ├── 24-web-dashboard.yaml    # React Web Dashboard Deployment & Service
+    ├── 30-ingress.yaml          # Ingress-Nginx routing rules (nip.io)
+    └── 40-servicemonitor.yaml   # Prometheus ServiceMonitor definition
 ```
-
-> **Note on `extras/`:** All local testing files, city seeders, and experimental test code are preserved inside `extras/`. This directory is strictly ignored by Git so that local testing can be repeated without cluttering the repository.
 
 ---
 
-## 🛠️ Build & Run Your Own UrbanEIIP Stack
+## ⚡ One-Click Infrastructure Provisioning & Destruction
 
-You can reproduce this entire architecture either locally using Docker Compose or on AWS using the provided Terraform configurations.
+The infrastructure is engineered for complete one-click provisioning with **zero manual shell configuration**.
 
-### Option A: Local Deployment (Docker Compose)
+### 1. One-Click Provisioning
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/Akash123-cyber/Urban-Environmental-Intelligence-Prediction-Platform.git
-   cd Urban-Environmental-Intelligence-Prediction-Platform
-   ```
+To provision or re-provision the entire platform from scratch:
 
-2. **Configure Environment:**
-   ```bash
-   cp .env.example .env
-   # Edit .env if you wish to adjust poll intervals or add an OpenAQ API key
-   ```
-
-3. **Launch Microservices:**
-   ```bash
-   docker compose up -d
-   ```
-
-4. **Access Local Endpoints:**
-   - **Web Dashboard:** [http://localhost:8080](http://localhost:8080)
-   - **API Gateway:** [http://localhost:3000](http://localhost:3000)
-   - **API Health:** [http://localhost:3000/health](http://localhost:3000/health)
-
----
-
-### Option B: Cloud Deployment on AWS (Terraform + K3s)
-
-#### 1. Prerequisites
-- [AWS CLI v2](https://aws.amazon.com/cli/) configured with valid administrator credentials.
-- [Terraform >= 1.5](https://www.terraform.io/downloads.html).
-- An existing or imported EC2 Key Pair (`~/.ssh/id_rsa.pub` or similar).
-
-#### 2. Provision Persistent Storage (S3 Buckets)
-```bash
-cd terraform/persistent
-terraform init
-terraform apply -auto-approve
-```
-*Outputs: `raw`, `processed`, and `models` S3 bucket names.*
-
-#### 3. Upload Trained Model Artifacts
-Upload the included LightGBM model weights to the newly created S3 model registry bucket:
 ```bash
 # From repository root:
-aws s3 sync data/models/ s3://<models-bucket-name>/
+./scripts/provision.sh
 ```
 
-#### 4. Provision Compute Layer & Dedicated Elastic IP
+**What happens automatically:**
+1. Terraform initializes and reads `terraform/terraform.tfvars`.
+2. S3 Data Lake buckets (`raw`, `processed`, `models`) and the static AWS Elastic IP (`13.206.193.63`) are verified or created.
+3. The `t3.medium` EC2 node is launched with 16 GB gp3 storage.
+4. Cloud-init executes `user_data.sh.tftpl`:
+   - Configures Docker CRI and installs K3s with `--docker`.
+   - Provisions Ingress-Nginx controller.
+   - Deploys PostgreSQL 16 with schema and historical 96-hour telemetry seeds.
+   - Pre-builds and launches all 5 microservices in namespace `urban`.
+   - Deploys Prometheus Operator and Grafana with pre-loaded `Urban Platform — Service Health` dashboard.
+   - Bootstraps Jenkins LTS controller on port 8080 with pre-configured pipeline job `UrbanEIIP-Pipeline`.
+   - Automatically triggers the initial Jenkins CI/CD build run.
+
+### 2. Safe Destruction (Preserving Static Elastic IP)
+
+To tear down the compute instance while **protecting the Elastic IP and S3 Data Lake buckets**:
+
 ```bash
-cd ../compute
-cp terraform.tfvars.example terraform.tfvars
-```
-Update `terraform.tfvars`:
-```hcl
-region          = "ap-south-1"
-key_name        = "urban-eipp-key"
-admin_cidrs     = ["0.0.0.0/0"]
-bucket_names    = {
-  raw       = "urban-eipp-407676141907-raw"
-  processed = "urban-eipp-407676141907-processed"
-  models    = "urban-eipp-407676141907-models"
-}
-docker_registry = "docker.io/akash123cyber"
-docker_tag      = "latest"
+# From repository root:
+./scripts/destroy.sh
 ```
 
-Apply compute infrastructure:
+**Why this matters:**
+The static Elastic IP (`13.206.193.63`) is configured with `lifecycle { prevent_destroy = true }` in `modules/persistent`. The destroy script selectively destroys `module.compute`:
 ```bash
-terraform init
-terraform apply -auto-approve
+terraform destroy -target=module.compute -auto-approve
 ```
-
-Terraform automatically provisions:
-1. **Ubuntu 22.04 LTS EC2 Instance** with 2 GB Swap protection.
-2. **Dedicated AWS Elastic IP** attached permanently to the node.
-3. **AWS Security Group** with inbound access for HTTP (80), HTTPS (443), and Jenkins (8080).
-4. **K3s Single-Node Kubernetes Cluster** with Ingress-Nginx controller.
-5. **Jenkins CI/CD Server** running directly on port 8080.
+This safely terminates the EC2 instance and releases computing costs without releasing the Elastic IP. When you re-provision with `./scripts/provision.sh`, the new instance automatically reattaches to `13.206.193.63`, ensuring **GitHub Webhooks and DNS/nip.io links never break**.
 
 ---
 
-## 🔄 Automated CI/CD with Jenkins & GitHub Webhooks
+## 🔄 Automated CI/CD Pipeline (Jenkins & GitHub Webhooks)
 
-The platform features automated SCM-triggered CI/CD:
+The platform features an automated, SCM-triggered continuous integration and delivery pipeline:
 
 ```mermaid
 sequenceDiagram
   autonumber
   actor Developer
-  participant GitHub
-  participant Jenkins as Jenkins CI (:8080)
+  participant GitHub as GitHub Repository
+  participant Jenkins as Jenkins CI Controller (:8080)
   participant DockerHub as Docker Hub Registry
-  participant K3s as AWS K3s Cluster
+  participant K3s as K3s Cluster (t3.medium)
 
   Developer->>GitHub: git push origin main
-  GitHub->>Jenkins: POST /github-webhook/
-  Jenkins->>Jenkins: Parallel Pytest, Jest, Lint & Build
-  Jenkins->>DockerHub: Build & Push SHA-tagged Docker Images
-  Jenkins->>K3s: Rolling update deployments via kubectl / Helm
-  Jenkins->>K3s: Smoke test GET /api/health
+  GitHub->>Jenkins: POST /github-webhook/ (JSON Push Payload)
+  Jenkins->>Jenkins: Checkout commit & extract short SHA
+  Jenkins->>Jenkins: Run parallel test matrix (Python unittest, Jest, Lint)
+  Jenkins->>DockerHub: Build & tag SHA-versioned Docker images
+  Jenkins->>K3s: Rolling update deployments (zero downtime)
+  Jenkins->>K3s: Automated smoke test verification (GET /health)
 ```
 
-### Setting Up the GitHub Webhook
-1. Go to your GitHub Repository $\to$ **Settings** $\to$ **Webhooks** $\to$ **Add webhook**.
-2. **Payload URL**: `http://13.206.193.63:8080/github-webhook/`
-3. **Content type**: `application/json`
-4. **Events**: Select **Just the push event**.
-5. Save the webhook. Every subsequent `git push` to `main` will automatically trigger parallel validation, container compilation, and rolling cluster deployment!
+### GitHub Webhook Configuration
+1. In your GitHub repository, navigate to **Settings** $\to$ **Webhooks** $\to$ **Add webhook**.
+2. **Payload URL:** `http://13.206.193.63:8080/github-webhook/`
+3. **Content type:** `application/json`
+4. **Events:** Select **Just the push event**.
+5. Save the webhook. Every push to `main` triggers Jenkins automated testing and rolling deployment.
 
 ---
 
-## 📊 Cluster Observability & Telemetry (Prometheus & Grafana)
+## 📊 Observability & Monitoring (Prometheus & Grafana)
 
-The production cluster includes a fully integrated, cost-optimized Prometheus Operator and Grafana monitoring stack deployed via the `kube-prometheus-stack` Helm chart:
+The production cluster includes a dedicated monitoring stack tuned for the `t3.medium` memory footprint:
 
-- **Live Grafana Console:** [http://grafana.13.206.193.63.nip.io](http://grafana.13.206.193.63.nip.io)
-- **Active Scrape Targets (13):** Continuous metrics collection across Node Exporter, cAdvisor, Kube-State-Metrics, K3s control plane, and microservice `/metrics` endpoints.
-- **Pre-Configured Dashboards:**
-  - *Cluster & Node Compute Resources* (CPU, RAM, Disk I/O, Network Throughput).
-  - *Namespace Workloads & Pod Health* (Pod restarts, container OOMs, and replica status).
-  - *Alertmanager Status & Rules Overview*.
-- **Right-Sized Resource Profiles:** Tuned specifically for cloud efficiency on `t3.medium` (averaging ~9% CPU and ~64% RAM utilization).
+- **Grafana URL:** [http://grafana.13.206.193.63.nip.io](http://grafana.13.206.193.63.nip.io)
+- **Pre-Loaded Dashboard:** `Urban Platform — Service Health` (`UID: urban-health`)
+  - **Pod CPU Consumption:** Real-time vCPU core usage per pod.
+  - **Pod Memory Working Set:** Resident set tracking against memory limits.
+  - **Request Rates & Error Ratios:** Real-time HTTP request throughput and 5xx error ratios.
+  - **p95 Latency:** 95th percentile latency tracking across all API routes.
+  - **Ingestion Throughput:** Records ingested per minute by city.
+  - **Cluster Node Health:** CPU load, memory headroom, and unready pod count.
 
 ---
 
-## 🧪 Local Testing & Seeding Harnesses
+## 🧪 Local Developer Environment (Docker Compose)
 
-To seed telemetry or test without calling live CPCB endpoints repeatedly, use the scripts preserved in `extras/`:
+To run the complete platform locally without AWS:
 
 ```bash
-# Seed telemetry across all target cities using historical Open-Meteo & OpenAQ data:
-python extras/scripts/seed_all_cities.py
+# 1. Clone repository
+git clone https://github.com/Akash123-cyber/Urban-Environmental-Intelligence-Prediction-Platform.git
+cd Urban-Environmental-Intelligence-Prediction-Platform
+
+# 2. Copy environment template
+cp .env.example .env
+
+# 3. Start services
+docker compose up -d
+
+# 4. Access local services
+# Web Dashboard: http://localhost:8080
+# API Gateway:   http://localhost:3000
+# API Health:    http://localhost:3000/health
 ```
 
 ---

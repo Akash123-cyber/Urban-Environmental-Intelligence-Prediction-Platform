@@ -139,15 +139,13 @@ pipeline {
       steps {
         echo "Deploying release ${env.RELEASE} with image tag ${env.SHORT_SHA}..."
         sh """
-          for svc in data-collector data-processor analytics-service api-service web-dashboard; do
-            docker save ${REGISTRY}/\${svc}:${env.SHORT_SHA} | ctr --address /run/k3s/containerd/containerd.sock -n k8s.io images import - 2>/dev/null || true
-          done
           kubectl set image deployment/data-collector data-collector=${REGISTRY}/data-collector:${env.SHORT_SHA} -n ${NAMESPACE} || true
           kubectl set image deployment/data-processor data-processor=${REGISTRY}/data-processor:${env.SHORT_SHA} -n ${NAMESPACE} || true
           kubectl set image deployment/analytics-service analytics-service=${REGISTRY}/analytics-service:${env.SHORT_SHA} -n ${NAMESPACE} || true
           kubectl set image deployment/api-service api-service=${REGISTRY}/api-service:${env.SHORT_SHA} -n ${NAMESPACE} || true
           kubectl set image deployment/web-dashboard web-dashboard=${REGISTRY}/web-dashboard:${env.SHORT_SHA} -n ${NAMESPACE} || true
           kubectl rollout status deployment/web-dashboard -n ${NAMESPACE} --timeout=120s || true
+          docker image prune -f || true
         """
       }
     }

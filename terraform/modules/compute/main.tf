@@ -206,7 +206,7 @@ resource "aws_instance" "node" {
     openaq_api_key    = var.openaq_api_key
     docker_registry        = var.docker_registry
     docker_tag             = var.docker_tag
-    grafana_dashboard_json = file("${path.module}/../../monitoring/dashboards/urban-health.json")
+    grafana_dashboard_json = file(var.dashboard_json_file != "" ? var.dashboard_json_file : "${path.module}/../../../monitoring/dashboards/urban-health.json")
   }))
 
   metadata_options {
