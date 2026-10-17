@@ -34,7 +34,7 @@
       "id": 1,
       "targets": [
         {
-          "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"urban\",container!=\"\"}[5m]))",
+          "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"urban\"}[5m]))",
           "legendFormat": "{{pod}}",
           "refId": "A"
         }
@@ -62,7 +62,7 @@
       "id": 2,
       "targets": [
         {
-          "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"urban\",container!=\"\"})",
+          "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"urban\"})",
           "legendFormat": "{{pod}}",
           "refId": "A"
         }
@@ -163,12 +163,12 @@
       "id": 6,
       "targets": [
         {
-          "expr": "(sum by (city) (rate(processor_records_ingested_total{namespace=\"urban\"}[10m])) * 60) or vector(0)",
-          "legendFormat": "{{city}}",
+          "expr": "(sum by (data_type) (rate(processor_records_ingested_total{namespace=\"urban\"}[10m])) * 60) or vector(0)",
+          "legendFormat": "{{data_type}}",
           "refId": "A"
         }
       ],
-      "title": "Ingestion throughput (rows/min by city)",
+      "title": "Ingestion throughput (rows/min by data_type)",
       "type": "timeseries"
     },
     {
