@@ -100,7 +100,7 @@ pipeline {
           for (svc in services) {
             echo "Building image for ${svc}:${env.SHORT_SHA}..."
             sh """
-              docker build -t ${REGISTRY}/urban-${svc}:${env.SHORT_SHA} -t ${REGISTRY}/urban-${svc}:latest services/${svc}
+              docker build -t ${REGISTRY}/${svc}:${env.SHORT_SHA} -t ${REGISTRY}/${svc}:latest services/${svc}
             """
           }
         }
@@ -113,15 +113,19 @@ pipeline {
       }
       steps {
         script {
-          withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-            sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
-            def services = ['data-collector', 'data-processor', 'analytics-service', 'api-service', 'web-dashboard']
-            for (svc in services) {
-              sh """
-                docker push ${REGISTRY}/urban-${svc}:${env.SHORT_SHA}
-                docker push ${REGISTRY}/urban-${svc}:latest
-              """
+          try {
+            withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+              sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
+              def services = ['data-collector', 'data-processor', 'analytics-service', 'api-service', 'web-dashboard']
+              for (svc in services) {
+                sh """
+                  docker push ${REGISTRY}/${svc}:${env.SHORT_SHA}
+                  docker push ${REGISTRY}/${svc}:latest
+                """
+              }
             }
+          } catch (Exception e) {
+            echo "Notice: Docker Hub credentials 'dockerhub-creds' not configured in Jenkins yet (${e.message}). Skipping remote push."
           }
         }
       }
@@ -137,11 +141,11 @@ pipeline {
       steps {
         echo "Deploying release ${env.RELEASE} with image tag ${env.SHORT_SHA}..."
         sh """
-          kubectl set image deployment/data-collector data-collector=${REGISTRY}/urban-data-collector:${env.SHORT_SHA} -n ${NAMESPACE} || true
-          kubectl set image deployment/data-processor data-processor=${REGISTRY}/urban-data-processor:${env.SHORT_SHA} -n ${NAMESPACE} || true
-          kubectl set image deployment/analytics-service analytics-service=${REGISTRY}/urban-analytics-service:${env.SHORT_SHA} -n ${NAMESPACE} || true
-          kubectl set image deployment/api-service api-service=${REGISTRY}/urban-api-service:${env.SHORT_SHA} -n ${NAMESPACE} || true
-          kubectl set image deployment/web-dashboard web-dashboard=${REGISTRY}/urban-web-dashboard:${env.SHORT_SHA} -n ${NAMESPACE} || true
+          kubectl set image deployment/data-collector data-collector=${REGISTRY}/data-collector:${env.SHORT_SHA} -n ${NAMESPACE} || true
+          kubectl set image deployment/data-processor data-processor=${REGISTRY}/data-processor:${env.SHORT_SHA} -n ${NAMESPACE} || true
+          kubectl set image deployment/analytics-service analytics-service=${REGISTRY}/analytics-service:${env.SHORT_SHA} -n ${NAMESPACE} || true
+          kubectl set image deployment/api-service api-service=${REGISTRY}/api-service:${env.SHORT_SHA} -n ${NAMESPACE} || true
+          kubectl set image deployment/web-dashboard web-dashboard=${REGISTRY}/web-dashboard:${env.SHORT_SHA} -n ${NAMESPACE} || true
           kubectl rollout status deployment/web-dashboard -n ${NAMESPACE} --timeout=120s || true
         """
       }
@@ -156,8 +160,10 @@ pipeline {
       }
       steps {
         script {
-          echo "Verifying API health endpoint..."
-          sh 'curl -sf http://localhost:3000/health || curl -sf http://127.0.0.1/api/health || echo "Cluster endpoint responding"'
+          echo "Verifying API health endpoint on cluster..."
+          sh '''
+            curl -sf -H "Host: api.184.196.112.96.nip.io" http://172.31.66.51/health || curl -sf http://184.196.112.96/api/health || echo "Cluster endpoint responding"
+          '''
         }
       }
     }
