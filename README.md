@@ -24,9 +24,6 @@ The entire cloud-native platform is provisioned and running live on AWS under a 
 | **🪝 GitHub Webhook URL** | `http://13.206.193.63:8080/github-webhook/` | Webhook endpoint configured in GitHub Repository Settings to trigger end-to-end CI/CD on every push |
 | **📍 Dedicated Elastic IP** | `13.206.193.63` | Static AWS IPv4 address with lifetime persistence across infrastructure tear-down and re-provisioning |
 
-> 🔒 **Security Notice:**  
-> In compliance with strict production security standards, all administrative credentials, database passwords, Jenkins API tokens, and Grafana monitoring secrets are kept strictly separated from public repository documentation and are maintained exclusively in [`DEPLOYMENT_AND_INFRASTRUCTURE_REPORT.md`](../DEPLOYMENT_AND_INFRASTRUCTURE_REPORT.md).
-
 ---
 
 ## 💡 System Overview & Key Capabilities
