@@ -1,0 +1,68 @@
+fullnameOverride: kps
+
+defaultRules:
+  create: true
+  rules:
+    etcd: false
+    kubeControllerManager: false
+    kubeSchedulerAlerting: false
+    kubeProxy: false
+
+kubeEtcd: { enabled: false }
+kubeControllerManager: { enabled: false }
+kubeScheduler: { enabled: false }
+kubeProxy: { enabled: false }
+
+prometheus:
+  prometheusSpec:
+    retention: 3d
+    retentionSize: 4GB
+    scrapeInterval: 30s
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    resources:
+      requests: { cpu: 50m, memory: 200Mi }
+      limits: { memory: 600Mi }
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources: { requests: { storage: 3Gi } }
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests: { cpu: 10m, memory: 32Mi }
+      limits: { memory: 96Mi }
+
+grafana:
+  adminUser: admin
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - grafana.184.196.112.96.nip.io
+  resources:
+    requests: { cpu: 30m, memory: 96Mi }
+    limits: { memory: 256Mi }
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      searchNamespace: ALL
+  persistence: { enabled: false }
+
+kube-state-metrics:
+  resources: { requests: { cpu: 10m, memory: 32Mi }, limits: { memory: 96Mi } }
+
+prometheus-node-exporter:
+  resources: { requests: { cpu: 10m, memory: 16Mi }, limits: { memory: 48Mi } }
+
+prometheusOperator:
+  resources: { requests: { cpu: 15m, memory: 48Mi }, limits: { memory: 160Mi } }

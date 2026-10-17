@@ -17,15 +17,13 @@ The complete cloud-native infrastructure is actively provisioned and hosted on A
 | **🌐 Interactive Dashboard** | [http://app.184.196.112.96.nip.io](http://app.184.196.112.96.nip.io) | React Frontend with Multi-Metric Forecasting & On-Demand Telemetry Refresh |
 | **🔌 API Gateway** | [http://api.184.196.112.96.nip.io](http://api.184.196.112.96.nip.io) | Node.js Express Gateway (Auth, Telemetry, Health, Inference Trigger) |
 | **🩺 API Health Check** | [http://api.184.196.112.96.nip.io/health](http://api.184.196.112.96.nip.io/health) | Real-time service readiness & database connectivity verification |
+| **📊 Grafana Observability** | [http://grafana.184.196.112.96.nip.io](http://grafana.184.196.112.96.nip.io) | Prometheus/Grafana real-time cluster telemetry, compute, and pod health |
 | **⚙️ Jenkins CI/CD Console** | [http://184.196.112.96:8080](http://184.196.112.96:8080) | Continuous Integration & Automated Delivery Pipeline Controller |
 | **🪝 GitHub Webhook URL** | `http://184.196.112.96:8080/github-webhook/` | Target URL configured in GitHub Repository Settings for automated build triggers |
 | **📍 Dedicated Elastic IP** | `184.196.112.96` | Static AWS IPv4 Allocation (`us-east-1`) |
 
-### 🔐 Platform Credentials Reference
-
-| Service | Access URL | Username / Identity | Password / Token |
-| :--- | :--- | :--- | :--- |
-| **Interactive Dashboard** | [http://app.184.196.112.96.nip.io](http://app.184.196.112.96.nip.io) | `admin@example.com` | `UB8faXqtBnrSC9qzsj3t1fo1` |
+> 🔒 **Administrative & Operational Credentials Notice:**  
+> All administrative passwords, Jenkins credentials, and Grafana monitoring access tokens are strictly managed as protected secrets and are documented exclusively in [`DEPLOYMENT_AND_INFRASTRUCTURE_REPORT.md`](../DEPLOYMENT_AND_INFRASTRUCTURE_REPORT.md) (never committed to public repository documentation).
 
 ---
 
@@ -241,6 +239,20 @@ sequenceDiagram
 3. **Content type**: `application/json`
 4. **Events**: Select **Just the push event**.
 5. Save the webhook. Every subsequent `git push` to `main` will automatically trigger parallel validation, container compilation, and rolling cluster deployment!
+
+---
+
+## 📊 Cluster Observability & Telemetry (Prometheus & Grafana)
+
+The production cluster includes a fully integrated, cost-optimized Prometheus Operator and Grafana monitoring stack deployed via the `kube-prometheus-stack` Helm chart:
+
+- **Live Grafana Console:** [http://grafana.184.196.112.96.nip.io](http://grafana.184.196.112.96.nip.io)
+- **Active Scrape Targets (13):** Continuous metrics collection across Node Exporter, cAdvisor, Kube-State-Metrics, K3s control plane, and microservice `/metrics` endpoints.
+- **Pre-Configured Dashboards:**
+  - *Cluster & Node Compute Resources* (CPU, RAM, Disk I/O, Network Throughput).
+  - *Namespace Workloads & Pod Health* (Pod restarts, container OOMs, and replica status).
+  - *Alertmanager Status & Rules Overview*.
+- **Right-Sized Resource Profiles:** Tuned specifically for cloud efficiency on `t3.medium` (averaging ~9% CPU and ~64% RAM utilization).
 
 ---
 
