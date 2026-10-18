@@ -102,6 +102,7 @@ router.get('/cities/:id/forecast', cityId, wrap(async (req, res) => {
   }
   const slug = cityRows[0].slug;
 
+  let cachedRows = [];
   if (!force) {
     const { rows } = await db.query(
       `SELECT target_time, predicted_pm25, predicted_pm10, model_version
@@ -110,24 +111,31 @@ router.get('/cities/:id/forecast', cityId, wrap(async (req, res) => {
        ORDER BY target_time`,
       [req.cityId]
     );
-    if (rows.length) return res.json(rows);
+    cachedRows = rows;
+    if (cachedRows.length >= 18) return res.json(cachedRows);
   }
 
-  // If forced or not cached in DB, query analytics service directly
+  // If forced or fewer than 18 hours remaining in cache, query analytics service directly
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20000);
     const r = await fetch(`${ANALYTICS_URL}/forecast/${slug}?hours=24${force ? '&force=true' : ''}`, { signal: controller.signal });
     clearTimeout(timeout);
 
-    if (!r.ok) {
-      return res.status(r.status).json({ error: 'forecast not available yet' });
+    if (r.ok) {
+      const data = await r.json();
+      return res.json(data.forecast || data);
     }
-    const data = await r.json();
-    res.json(data.forecast || data);
   } catch (err) {
-    res.status(502).json({ error: 'analytics service unreachable or timed out' });
+    console.warn(`Analytics fetch failed for ${slug}:`, err.message);
   }
+
+  // Graceful fallback to existing future predictions if available
+  if (cachedRows.length > 0) {
+    return res.json(cachedRows);
+  }
+
+  return res.status(502).json({ error: 'analytics service unreachable or timed out' });
 }));
 
 router.get('/cities/:id/anomalies', cityId, wrap(async (req, res) => {

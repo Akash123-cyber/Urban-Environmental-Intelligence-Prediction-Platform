@@ -307,7 +307,7 @@ def make_features(df: pd.DataFrame, target: str) -> pd.DataFrame:
         x[f"lag_{lag}"] = series.shift(lag)
     x["diff_1_2"] = x["lag_1"] - x["lag_2"]
     x["diff_1_24"] = x["lag_1"] - x["lag_24"]
-    x["roll_mean_6"] = series.shift(1).rolling(6).mean()
+    x["roll_mean_6"] = series.shift(1).rolling(6, min_periods=1).mean()
     x["hour_sin"] = np.sin(2 * np.pi * df.index.hour / 24)
     x["hour_cos"] = np.cos(2 * np.pi * df.index.hour / 24)
     x["dow"] = df.index.dayofweek
@@ -323,6 +323,9 @@ def forecast(bundle: dict[str, Any], df: pd.DataFrame, target: str, steps: int =
     if df.empty or target not in df or df[target].dropna().empty:
         raise ValueError("not enough observations to forecast")
     hist = df.reindex(columns=[target, *WX]).copy().tail(120)
+    # Ensure any gaps from telemetry outages are smoothly interpolated
+    hist[target] = hist[target].interpolate(method="time" if isinstance(hist.index, pd.DatetimeIndex) else "linear").ffill().bfill()
+    hist[WX] = hist[WX].interpolate(method="time" if isinstance(hist.index, pd.DatetimeIndex) else "linear").ffill().bfill()
     last_valid = hist[target].last_valid_index()
     if last_valid is None:
         raise ValueError("target has no valid observations")
@@ -335,7 +338,8 @@ def forecast(bundle: dict[str, Any], df: pd.DataFrame, target: str, steps: int =
         hist.loc[next_time] = [np.nan, *wx]
         row = make_features(hist, target).iloc[[-1]]
         if row.isna().any(axis=None):
-            raise ValueError("feature row contains missing values; more history is required")
+            # Fallback fill any edge NaNs to prevent complete forecast abortion
+            row = row.ffill().bfill().fillna(0.0)
         raw_pred = float(bundle["model"].predict(row)[0])
         if is_delta:
             prediction = max(float(row["lag_1"].iloc[0] + raw_pred), 0.0)
