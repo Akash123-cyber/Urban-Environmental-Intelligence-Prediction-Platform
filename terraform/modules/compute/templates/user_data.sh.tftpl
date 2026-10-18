@@ -676,13 +676,23 @@ sed -i "s|127.0.0.1:6443|$PRIV_IP:6443|g" /var/jenkins_home/.kube/config
 chown -R 1000:1000 /var/jenkins_home/.kube
 chmod 600 /var/jenkins_home/.kube/config
 
+# Ensure Docker socket permissions persist across daemon restarts and boots
+mkdir -p /etc/systemd/system/docker.service.d
+cat <<EOF > /etc/systemd/system/docker.service.d/override.conf
+[Service]
+ExecStartPost=/bin/chmod 666 /var/run/docker.sock
+EOF
+
+# Ensure K3s reliably orders after Docker on system boot
 mkdir -p /etc/systemd/system/k3s.service.d
 cat <<EOF > /etc/systemd/system/k3s.service.d/override.conf
-[Service]
-ExecStartPost=/bin/sh -c 'sleep 2 && chmod 666 /run/k3s/containerd/containerd.sock'
+[Unit]
+Wants=docker.service
+After=docker.service
+Requires=docker.service
 EOF
 systemctl daemon-reload
-chmod 666 /run/k3s/containerd/containerd.sock 2>/dev/null || true
+chmod 666 /var/run/docker.sock 2>/dev/null || true
 
 # Run Jenkins container with memory limits optimized for t3.medium
 docker run -d --name jenkins --restart unless-stopped \
