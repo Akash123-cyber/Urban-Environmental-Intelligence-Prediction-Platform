@@ -166,6 +166,7 @@ pipeline {
 
   post {
     always {
+      sh 'docker builder prune -af --filter "until=1h" || true'
       deleteDir()
     }
     success {
