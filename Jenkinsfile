@@ -145,7 +145,6 @@ pipeline {
           kubectl set image deployment/api-service api-service=${REGISTRY}/api-service:${env.SHORT_SHA} -n ${NAMESPACE} || true
           kubectl set image deployment/web-dashboard web-dashboard=${REGISTRY}/web-dashboard:${env.SHORT_SHA} -n ${NAMESPACE} || true
           kubectl rollout status deployment/web-dashboard -n ${NAMESPACE} --timeout=120s || true
-          docker image prune -f || true
         """
       }
     }

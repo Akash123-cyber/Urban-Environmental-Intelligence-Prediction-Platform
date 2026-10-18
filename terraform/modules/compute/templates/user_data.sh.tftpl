@@ -30,9 +30,9 @@ curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server \
   --write-kubeconfig-mode 644 \
   --tls-san ${public_ip} --tls-san $PRIV_IP \
   --kubelet-arg=fail-swap-on=false \
-  --kubelet-arg=image-gc-high-threshold=85 \
-  --kubelet-arg=image-gc-low-threshold=80 \
-  --kubelet-arg=eviction-hard=imagefs.available<5%,nodefs.available<5%" sh -
+  --kubelet-arg=image-gc-high-threshold=95 \
+  --kubelet-arg=image-gc-low-threshold=90 \
+  --kubelet-arg=eviction-hard=imagefs.available<3%,nodefs.available<3%" sh -
 
 # 4. Wait for k3s cluster ready
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
