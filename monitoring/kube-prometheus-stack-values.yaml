@@ -49,14 +49,14 @@ grafana:
     hosts:
       - grafana.13.206.193.63.nip.io
   resources:
-    requests: { cpu: 80m, memory: 192Mi }
-    limits: { memory: 512Mi }
+    requests: { cpu: 80m, memory: 256Mi }
+    limits: { memory: 1024Mi }
   readinessProbe:
     httpGet:
       path: /api/health
       port: 3000
     initialDelaySeconds: 15
-    timeoutSeconds: 5
+    timeoutSeconds: 10
     periodSeconds: 10
     failureThreshold: 5
   livenessProbe:
@@ -64,7 +64,7 @@ grafana:
       path: /api/health
       port: 3000
     initialDelaySeconds: 30
-    timeoutSeconds: 5
+    timeoutSeconds: 10
     periodSeconds: 10
     failureThreshold: 5
   sidecar:

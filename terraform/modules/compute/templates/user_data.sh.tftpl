@@ -274,8 +274,9 @@ spec:
         resources: { requests: { storage: 5Gi } }
 EOF
 
-# 5.4 Application Microservices (pulling from Docker Hub)
-cat <<EOF > "$MANIFESTS_DIR/04-urban-apps.yaml"
+# 5.4 Application Microservices (saved in /etc/urban/k8s to avoid K3s auto-reapply overwrite on reboot)
+mkdir -p /etc/urban/k8s
+cat <<EOF > "/etc/urban/k8s/04-urban-apps.yaml"
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -547,6 +548,7 @@ if [ -d /tmp/urban-repo/services ]; then
   done
   rm -rf /tmp/urban-repo
 fi
+kubectl apply -f /etc/urban/k8s/04-urban-apps.yaml || true
 docker image prune -f || true
 apt-get clean || true
 rm -rf /var/lib/apt/lists/* || true
@@ -613,14 +615,14 @@ grafana:
     hosts:
       - grafana.${public_ip}.nip.io
   resources:
-    requests: { cpu: 80m, memory: 192Mi }
-    limits: { memory: 512Mi }
+    requests: { cpu: 80m, memory: 256Mi }
+    limits: { memory: 1024Mi }
   readinessProbe:
     httpGet:
       path: /api/health
       port: 3000
     initialDelaySeconds: 15
-    timeoutSeconds: 5
+    timeoutSeconds: 10
     periodSeconds: 10
     failureThreshold: 5
   livenessProbe:
@@ -628,7 +630,7 @@ grafana:
       path: /api/health
       port: 3000
     initialDelaySeconds: 30
-    timeoutSeconds: 5
+    timeoutSeconds: 10
     periodSeconds: 10
     failureThreshold: 5
   sidecar:
